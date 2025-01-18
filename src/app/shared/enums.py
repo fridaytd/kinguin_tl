@@ -1,0 +1,12 @@
+from enum import Enum
+
+
+class MessageType(Enum):
+    UPDATE_WITH_MIN_PRICE = "UPDATE_WITH_MIN_PRICE"
+    UPDATE_WITH_COMPARING_SELLER = "UPDATE_WITH_COMPARING_SELLER"
+    NO_NEED_UPDATE = "NO_NEED_UPDATE"
+
+
+class ExtractedDataType:
+    OFFER = "OFFER"
+    FINAL_PRODUCT = "FINAL_PRODUCT"

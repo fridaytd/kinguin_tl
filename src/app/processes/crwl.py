@@ -1,5 +1,10 @@
 from ..shared.consts import WINDOW_PRELOADEDSTATE_EXPRESSION
-from ..models.crwl_models import CrwlOffer, FinalProduct
+from ..models.crwl_models import (
+    CrwlOffer,
+    FinalProduct,
+    ExtractedFinalProduct,
+    ExtractedOffer,
+)
 from ..shared.exceptions import CrwlError
 from ..utils.decorators import retry_on_fail
 
@@ -63,3 +68,22 @@ def extract_ingame_category(
         final_products_dict[fp.id] = fp
 
     return final_products_dict
+
+
+def extract_offers_or_final_produce(
+    sb,
+    url: str,
+) -> ExtractedOffer | ExtractedFinalProduct:
+    state = get_state(sb, url)
+
+    try:
+        return ExtractedOffer(data=extract_offers(state))
+    except Exception:
+        pass
+
+    try:
+        return ExtractedFinalProduct(data=extract_ingame_category(state))
+    except Exception:
+        pass
+
+    raise CrwlError("Cannot extract from compare link!!!")

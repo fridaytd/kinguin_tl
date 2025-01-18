@@ -94,9 +94,11 @@ class Product(ColSheetModel):
     IDSHEET_STOCK: Annotated[str, {COL_META_FIELD_NAME: "R"}]
     SHEET_STOCK: Annotated[str, {COL_META_FIELD_NAME: "S"}]
     CELL_STOCK: Annotated[str, {COL_META_FIELD_NAME: "T"}]
-    IDSHEET_BLACKLIST: Annotated[str, {COL_META_FIELD_NAME: "U"}]
-    SHEET_BLACKLIST: Annotated[str, {COL_META_FIELD_NAME: "V"}]
-    CELL_BLACKLIST: Annotated[str, {COL_META_FIELD_NAME: "W"}]
+    UNIT_STOCK: Annotated[int, {COL_META_FIELD_NAME: "U"}]
+    MIN_UNIT_PER_ORDER: Annotated[int, {COL_META_FIELD_NAME: "V"}]
+    IDSHEET_BLACKLIST: Annotated[str, {COL_META_FIELD_NAME: "w"}]
+    SHEET_BLACKLIST: Annotated[str, {COL_META_FIELD_NAME: "X"}]
+    CELL_BLACKLIST: Annotated[str, {COL_META_FIELD_NAME: "Y"}]
 
     def min_price(self) -> float:
         g_client = service_account(ROOT_PATH.joinpath(os.environ["KEYS_PATH"]))

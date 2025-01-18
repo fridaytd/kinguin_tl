@@ -5,8 +5,8 @@ import requests
 from requests.exceptions import HTTPError
 
 from ..shared.consts import KINGUIN_TOKEN_BASE_URL, KINGUIN_API_BASE_URL
-from ..models.crwl_models import OfferPrice
 from .logger import logger
+from ..models.api_models import Offer, PriceBase
 
 
 class Token:
@@ -102,7 +102,7 @@ class KinguinClient:
         )
         res.raise_for_status()
 
-        return res.json()
+        return Offer.model_validate(res.json())
 
     def get_offers(
         self,
@@ -122,8 +122,9 @@ class KinguinClient:
     def update_offer(
         self,
         offer_id: str,
-        price: OfferPrice,
+        price: PriceBase,
         declaredStock: int,
+        min_quantity: int,
     ) -> None:
         self.token.ensure_valid_token()
 
@@ -135,6 +136,7 @@ class KinguinClient:
         payload = {
             "price": price.model_dump(mode="json"),
             "declaredStock": declaredStock,
+            # "minQuantity": min_quantity,
         }
 
         res = requests.patch(
@@ -149,11 +151,42 @@ class KinguinClient:
             logger.error(res.text)
             res.raise_for_status()
 
-    def calculate_merchant_commission_infomation(
+    def from_priceiwtr_to_price(
+        self,
+        kpc_product_id: str,
+        priceiwtr: int,
+    ) -> int:
+        self.token.ensure_valid_token()
+
+        headers = {
+            "Authorization": f"Bearer {self.token.access_token}",
+            "Content-Type": "application/json",
+        }
+
+        payload = {
+            "kpcProductId": kpc_product_id,
+            "priceIWTR": priceiwtr,
+        }
+
+        res = requests.get(
+            f"{KINGUIN_API_BASE_URL}/api/v1/offers/calculations/priceAndCommission",
+            headers=headers,
+            params=payload,
+        )
+        try:
+            res.raise_for_status()
+
+        except HTTPError:
+            logger.error(res.text)
+            res.raise_for_status()
+
+        return res.json()["price"]
+
+    def from_price_to_priceiwtr(
         self,
         kpc_product_id: str,
         price: int,
-    ):
+    ) -> int:
         self.token.ensure_valid_token()
 
         headers = {
@@ -178,7 +211,7 @@ class KinguinClient:
             logger.error(res.text)
             res.raise_for_status()
 
-        return res.json()
+        return res.json()["priceIWTR"]
 
 
 kinguin_client = KinguinClient()

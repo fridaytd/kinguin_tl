@@ -7,3 +7,5 @@ KINGUIN_TOKEN_BASE_URL: Final[str] = "https://id.kinguin.net/auth/token"
 KINGUIN_API_BASE_URL: Final[str] = "https://gateway.kinguin.net/sales-manager-api"
 
 CURRENCY: Final[str] = "EUR"
+
+PRICE_CONVERT_RATE: Final[int] = 100

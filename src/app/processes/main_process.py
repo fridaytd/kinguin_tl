@@ -1,73 +1,60 @@
-import os
 import random
 
-from datetime import datetime
 
 from ..models.gsheet_model import Product
-from .crwl import get_state, extract_ingame_category, extract_offers
+from .crwl import extract_offers_or_final_produce, extract_offers, get_state
 from ..utils.logger import logger
-from ..models.crwl_models import CrwlOffer, OfferPrice, FinalProduct
+from ..models.crwl_models import (
+    CrwlOffer,
+    FinalProduct,
+    ExtractedOffer,
+)
 from ..utils.kinguin_client import kinguin_client
 from ..shared.consts import CURRENCY
-
-
-def last_update_message(
-    now: datetime,
-) -> str:
-    formatted_date = now.strftime("%d/%m/%Y %H:%M:%S")
-    return formatted_date
+from ..models.api_models import PriceBase
+from ..utils.price_utils import float_to_int_price, int_to_float_price
+from ..utils.update_messages import (
+    update_with_comparing_seller,
+    update_with_min_price,
+    no_need_update,
+)
+from ..models.api_models import Offer
 
 
 def extract_offer_id_from_product_link(link: str) -> str:
     return link.split("/")[-1]
 
 
-def update_by_price_and_stock(
+def update_offer(
     offer_id: str,
-    target_price: float,
-    stock: int,
-    product_id: str | None = None,
+    price: PriceBase,
+    declaredStock: int,
+    min_quantity: int,
 ):
-    fake_price: int = int(target_price * 100)
-    if product_id:
-        price_iwtr = kinguin_client.calculate_merchant_commission_infomation(
-            kpc_product_id=product_id, price=fake_price
-        )["priceIWTR"]
-        logger.info(f"UPdate price: {price_iwtr}")
-
-    else:
-        product_id_: str = kinguin_client.get_offer(offer_id=offer_id)["productId"]
-        price_iwtr: int = kinguin_client.calculate_merchant_commission_infomation(
-            kpc_product_id=product_id_, price=fake_price
-        )["priceIWTR"]
-        logger.info(f"Update price: {price_iwtr}")
-
     kinguin_client.update_offer(
         offer_id=offer_id,
-        price=OfferPrice(
-            amount=price_iwtr,
-            currency=CURRENCY,
-        ),
-        declaredStock=stock,
+        price=price,
+        declaredStock=declaredStock,
+        min_quantity=min_quantity,
     )
+    return
 
 
-def calculate_price_change_by_min_offer(
+def calculate_priceiwtr_change_by_min_offer(
     product: Product,
-    product_min_price: float,
-    product_max_price: float | None,
-    min_price_offer: CrwlOffer,
+    product_min_priceiwtr: float,
+    product_max_priceiwtr: float | None,
+    priceiwtr_of_min_offer: float,
 ) -> float:
-    real_min_price: float = float(min_price_offer.price.amount) / 100
     new_min_price_random = (
-        real_min_price - product.DONGIAGIAM_MAX
-        if real_min_price - product.DONGIAGIAM_MAX >= product_min_price
-        else product_min_price
+        priceiwtr_of_min_offer - product.DONGIAGIAM_MAX
+        if priceiwtr_of_min_offer - product.DONGIAGIAM_MAX >= product_min_priceiwtr
+        else product_min_priceiwtr
     )
     new_max_price_random = (
-        real_min_price - product.DONGIAGIAM_MIN
-        if real_min_price - product.DONGIAGIAM_MIN >= product_min_price
-        else product_min_price
+        priceiwtr_of_min_offer - product.DONGIAGIAM_MIN
+        if priceiwtr_of_min_offer - product.DONGIAGIAM_MIN >= product_min_priceiwtr
+        else product_min_priceiwtr
     )
     new_price_change = round(
         random.uniform(new_min_price_random, new_max_price_random),
@@ -79,135 +66,242 @@ def calculate_price_change_by_min_offer(
 
 def offers_compare_flow(
     product: Product,
+    my_offer: Offer,
     offers: dict[str, CrwlOffer],
 ):
-    valid_offers: dict[str, CrwlOffer] = {}
-    my_offer: CrwlOffer | None = None
+    valid_crwl_offers: dict[str, CrwlOffer] = {}
 
-    product_min_price = product.min_price()
-    product_max_price = product.max_price()
+    # Get product data
+    product_min_priceiwtr = product.min_price()
+    product_max_priceiwtr = product.max_price()
     blacklist = product.blacklist()
-    stock = product.stock()
+    stock_without_unit = product.stock()
 
-    my_offer_id: str = extract_offer_id_from_product_link(product.Product_link)
+    # Convert price to comparatable price
+    real_product_min_price = int_to_float_price(
+        kinguin_client.from_priceiwtr_to_price(
+            my_offer.productId,
+            float_to_int_price(
+                product_min_priceiwtr,
+            ),
+        )
+    )
+    real_product_max_price = (
+        int_to_float_price(
+            kinguin_client.from_priceiwtr_to_price(
+                my_offer.productId,
+                float_to_int_price(
+                    product_max_priceiwtr,
+                ),
+            )
+        )
+        if product_max_priceiwtr
+        else None
+    )
+
+    is_include_my_offer: bool = False
 
     min_price_offer: CrwlOffer | None = None
 
     # Filter valid offer and find min offer and find my offer if it valid
     for offer_id, offer in offers.items():
-        real_offer_price: float = float(offer.price.amount) / 100
+        real_offer_price = int_to_float_price(offer.price.amount)
 
-        if my_offer_id == offer_id or offer.seller.name not in blacklist:
+        if my_offer.id == offer_id:
+            is_include_my_offer = True
+
+        if my_offer.id == offer_id or offer.seller.name not in blacklist:
             if (
-                product_max_price
-                and product_min_price <= real_offer_price <= product_max_price
-            ) or (product_max_price is None and product_min_price <= real_offer_price):
-                valid_offers[offer_id] = offer
+                real_product_max_price
+                and real_product_min_price <= real_offer_price <= real_product_max_price
+            ) or (
+                real_product_max_price is None
+                and real_product_min_price <= real_offer_price
+            ):
+                valid_crwl_offers[offer_id] = offer
                 if (
                     min_price_offer is None
                     or offer.price.amount < min_price_offer.price.amount
                 ):
                     min_price_offer = offer
 
-                if my_offer_id == offer_id:
-                    my_offer = offer
-
-    now = datetime.now()
-
-    if my_offer is None:
+    if not is_include_my_offer:
         if min_price_offer is None:
-            if product_max_price:
+            if product_max_priceiwtr:
                 logger.info("Update by max price")
-                target_price = product_max_price
-                note_message = f"""{last_update_message(now)}:Giá đã cập nhật thành công; Price = {target_price}; Stock = {stock}; Pricemin = {product_min_price}, Pricemax = {product_max_price}"""
+                target_priceiwtr = product_max_priceiwtr
+                note_message, last_update_message = update_with_min_price(
+                    price=target_priceiwtr,
+                    stock=stock_without_unit,
+                    min_quantity=product.MIN_UNIT_PER_ORDER,
+                    unit_stock=product.UNIT_STOCK,
+                    price_min=product_min_priceiwtr,
+                    price_max=product_max_priceiwtr,
+                )
 
             else:
                 logger.info("Update by min price")
-                target_price = product_min_price
-                note_message = f"""{last_update_message(now)}:Giá đã cập nhật thành công; Price = {target_price}; Stock = {stock}; Pricemin = {product_min_price}, Pricemax = {product_max_price}"""
-
+                target_priceiwtr = product_min_priceiwtr
+                note_message, last_update_message = update_with_min_price(
+                    price=target_priceiwtr,
+                    stock=stock_without_unit,
+                    unit_stock=product.UNIT_STOCK,
+                    min_quantity=product.MIN_UNIT_PER_ORDER,
+                    price_min=product_min_priceiwtr,
+                    price_max=product_max_priceiwtr,
+                )
         else:
             logger.info(f"Update price by price of {min_price_offer.seller.name}")
-            new_price_change = calculate_price_change_by_min_offer(
+            priceiwtr_of_min_offer = int_to_float_price(
+                kinguin_client.from_price_to_priceiwtr(
+                    my_offer.productId,
+                    min_price_offer.price.amount,
+                )
+            )
+            new_price_change = calculate_priceiwtr_change_by_min_offer(
                 product=product,
-                product_min_price=product_min_price,
-                product_max_price=product_max_price,
-                min_price_offer=min_price_offer,
+                product_min_priceiwtr=product_min_priceiwtr,
+                product_max_priceiwtr=product_max_priceiwtr,
+                priceiwtr_of_min_offer=priceiwtr_of_min_offer,
             )
             logger.info(new_price_change)
-            target_price = new_price_change
-            note_message = f"""{last_update_message(now)}:Giá đã cập nhật thành công; Price = {target_price}; Stock = {stock}; Pricemin = {product_min_price}, Pricemax = {product_max_price}, , GiaSosanh = {float(min_price_offer.price.amount) / 100} - Seller: {min_price_offer.seller.name}."""
+            target_priceiwtr = new_price_change
+            note_message, last_update_message = update_with_comparing_seller(
+                price=target_priceiwtr,
+                stock=stock_without_unit,
+                unit_stock=product.UNIT_STOCK,
+                min_quantity=product.MIN_UNIT_PER_ORDER,
+                price_min=product_min_priceiwtr,
+                price_max=product_max_priceiwtr,
+                comparing_price=priceiwtr_of_min_offer,
+                comparing_seller=min_price_offer.seller.name,
+            )
 
     else:
         if min_price_offer:
             if min_price_offer.id == my_offer.id:
-                target_price = None
+                target_priceiwtr = None
                 logger.info("Do not need to update")
-                note_message_var = f"{last_update_message(now)}: Không cần cập nhật giá vì {os.environ['MY_SELLER_NAME']} Đã có giá nhỏ nhất: Price = {float(min_price_offer.price.amount) / 100}; Stock = {stock}; Pricemin = {product_min_price}, Pricemax = {product_max_price}."
+                note_message, last_update_message = no_need_update(
+                    my_seller=min_price_offer.seller.name,
+                    price=my_offer.priceIWTR.amount,
+                    stock=my_offer.declaredStock // product.UNIT_STOCK,
+                    min_quantity=product.MIN_UNIT_PER_ORDER,
+                    unit_stock=product.UNIT_STOCK,
+                    price_min=product_min_priceiwtr,
+                    price_max=product_max_priceiwtr,
+                )
 
             else:
                 logger.info(f"Update price by price of {min_price_offer.seller.name}")
-
-                new_price_change = calculate_price_change_by_min_offer(
+                priceiwtr_of_min_offer = int_to_float_price(
+                    kinguin_client.from_price_to_priceiwtr(
+                        my_offer.productId,
+                        min_price_offer.price.amount,
+                    )
+                )
+                new_price_change = calculate_priceiwtr_change_by_min_offer(
                     product=product,
-                    product_min_price=product_min_price,
-                    product_max_price=product_max_price,
-                    min_price_offer=min_price_offer,
+                    product_min_priceiwtr=product_min_priceiwtr,
+                    product_max_priceiwtr=product_max_priceiwtr,
+                    priceiwtr_of_min_offer=priceiwtr_of_min_offer,
                 )
                 logger.info(new_price_change)
-                target_price = new_price_change
-                note_message = f"""{last_update_message(now)}:Giá đã cập nhật thành công; Price = {target_price}; Stock = {stock}; Pricemin = {product_min_price}, Pricemax = {product_max_price}, , GiaSosanh = {float(min_price_offer.price.amount) / 100} - Seller: {min_price_offer.seller.name}"""
+                target_priceiwtr = new_price_change
+                note_message, last_update_message = update_with_comparing_seller(
+                    price=target_priceiwtr,
+                    stock=stock_without_unit,
+                    unit_stock=product.UNIT_STOCK,
+                    min_quantity=product.MIN_UNIT_PER_ORDER,
+                    price_min=product_min_priceiwtr,
+                    price_max=product_max_priceiwtr,
+                    comparing_price=priceiwtr_of_min_offer,
+                    comparing_seller=min_price_offer.seller.name,
+                )
 
         else:
-            if product_max_price:
+            if product_max_priceiwtr:
                 logger.info("Update by max price")
-                target_price = product_max_price
-                note_message = f"""{last_update_message(now)}:Giá đã cập nhật thành công; Price = {target_price}; Stock = {stock}; Pricemin = {product_min_price}, Pricemax = {product_max_price}"""
+                target_priceiwtr = product_max_priceiwtr
+                note_message, last_update_message = update_with_min_price(
+                    price=target_priceiwtr,
+                    stock=stock_without_unit,
+                    min_quantity=product.MIN_UNIT_PER_ORDER,
+                    unit_stock=product.UNIT_STOCK,
+                    price_min=product_min_priceiwtr,
+                    price_max=product_max_priceiwtr,
+                )
 
             else:
                 logger.info("Update by min price")
-                target_price = product_min_price
-                note_message = f"""{last_update_message(now)}:Giá đã cập nhật thành công; Price = {target_price}; Stock = {stock}; Pricemin = {product_min_price}, Pricemax = {product_max_price}"""
+                target_priceiwtr = product_min_priceiwtr
+                note_message, last_update_message = update_with_min_price(
+                    price=target_priceiwtr,
+                    stock=stock_without_unit,
+                    min_quantity=product.MIN_UNIT_PER_ORDER,
+                    unit_stock=product.UNIT_STOCK,
+                    price_min=product_min_priceiwtr,
+                    price_max=product_max_priceiwtr,
+                )
 
-    if min_price_offer:
-        product_id = min_price_offer.productId
-
-    else:
-        product_id = None
-
-    if target_price:
-        update_by_price_and_stock(
-            offer_id=my_offer_id,
-            target_price=target_price,
-            stock=stock,
-            product_id=product_id,
+    if target_priceiwtr:
+        update_offer(
+            offer_id=my_offer.id,
+            price=PriceBase(
+                amount=float_to_int_price(target_priceiwtr),
+                currency=CURRENCY,
+            ),
+            declaredStock=stock_without_unit * product.UNIT_STOCK,
+            min_quantity=product.MIN_UNIT_PER_ORDER,
         )
     product.Note = note_message
-    product.Last_update = last_update_message(now)
-
+    product.Last_update = last_update_message
     product.update()
 
 
 def ingame_category_compare_flow(
     sb,
     product: Product,
+    my_offer: Offer,
     final_products: dict[str, FinalProduct],
 ):
-    product_min_price = product.min_price()
-    product_max_price = product.max_price()
+    product_min_priceiwtr = product.min_price()
+    product_max_priceiwtr = product.max_price()
     # blacklist = product.blacklist()
     # stock = product.stock()
 
-    my_offer_id = extract_offer_id_from_product_link(product.Product_link)
+    # Convert price to comparatable price
+    real_product_min_price = int_to_float_price(
+        kinguin_client.from_priceiwtr_to_price(
+            my_offer.productId,
+            float_to_int_price(
+                product_min_priceiwtr,
+            ),
+        )
+    )
+    real_product_max_price = (
+        int_to_float_price(
+            kinguin_client.from_priceiwtr_to_price(
+                my_offer.productId,
+                float_to_int_price(
+                    product_max_priceiwtr,
+                ),
+            )
+        )
+        if product_max_priceiwtr
+        else None
+    )
 
     valid_final_products: dict[str, FinalProduct] = {}
 
     for product_id, final_product in final_products.items():
-        real_offer_price: float = float(final_product.price.calculated) / 100
+        real_offer_price = int_to_float_price(final_product.price.calculated)
         if (
-            product_max_price
-            and product_min_price <= real_offer_price <= product_max_price
-        ) or (product_max_price is None and product_min_price <= real_offer_price):
+            product_max_priceiwtr
+            and product_min_priceiwtr <= real_offer_price <= product_max_priceiwtr
+        ) or (
+            product_max_priceiwtr is None and product_min_priceiwtr <= real_offer_price
+        ):
             valid_final_products[product_id] = final_product
 
     offers: dict[str, CrwlOffer] = {}
@@ -219,7 +313,8 @@ def ingame_category_compare_flow(
         offers.update(extract_offers(state))
 
     offers_compare_flow(
-        product,
+        product=product,
+        my_offer=my_offer,
         offers=offers,
     )
 
@@ -230,56 +325,25 @@ def check_product_compare_flow(
 ):
     logger.info(f"Processing for {product.Product_name}")
     logger.info(f"Crawling at: {product.PRODUCT_COMPARE}")
-    state = get_state(sb, product.PRODUCT_COMPARE)
 
-    offers: dict[str, CrwlOffer] | None = None
-    final_products: dict[str, FinalProduct] | None = None
+    my_offer_id = extract_offer_id_from_product_link(product.Product_link)
 
-    try:
-        offers = extract_offers(state)
-    except Exception:
-        pass
+    my_offer = kinguin_client.get_offer(offer_id=my_offer_id)
 
-    try:
-        final_products = extract_ingame_category(state)
-    except Exception:
-        pass
+    extracted_data = extract_offers_or_final_produce(sb, product.PRODUCT_COMPARE)
 
-    if offers is not None:
-        try:
-            logger.info("Offer Flow")
-            offers_compare_flow(product, offers)
-            return
-        except Exception as e:
-            logger.error(e)
-            now = datetime.now()
-            note_message = f"{last_update_message(now)}: ERROR: {e}"
-            product.Note = note_message
-            product.Last_update = last_update_message(now)
-            product.update()
-            return
+    if isinstance(extracted_data, ExtractedOffer):
+        offers_compare_flow(
+            product=product, my_offer=my_offer, offers=extracted_data.data
+        )
 
-    if final_products is not None:
-        try:
-            logger.info("Ingame Category Flow")
-            ingame_category_compare_flow(sb, product, final_products)
-            return
-        except Exception as e:
-            logger.error(e)
-            now = datetime.now()
-            note_message = f"{last_update_message(now)}: ERROR: {e}"
-            product.Note = note_message
-            product.Last_update = last_update_message(now)
-            product.update()
-
-    logger.error("Cannot extract from compare link!!!")
-    now = datetime.now()
-    note_message = (
-        f"{last_update_message(now)}: Cannot extract data from compare link!!!"
-    )
-    product.Note = note_message
-    product.Last_update = last_update_message(now)
-    product.update()
+    else:
+        ingame_category_compare_flow(
+            sb,
+            product=product,
+            my_offer=my_offer,
+            final_products=extracted_data.data,
+        )
 
 
 def no_check_product_compare_flow(
@@ -289,16 +353,30 @@ def no_check_product_compare_flow(
     product_max_price = product.max_price()
     stock = product.stock()
 
+    real_stock = stock * product.UNIT_STOCK
+
+    int_price = float_to_int_price(product_min_price)
+
     my_offer_id = extract_offer_id_from_product_link(product.Product_link)
 
-    update_by_price_and_stock(
-        offer_id=my_offer_id, target_price=product_min_price, stock=stock
+    update_offer(
+        offer_id=my_offer_id,
+        declaredStock=real_stock,
+        price=PriceBase(amount=int_price, currency=CURRENCY),
+        min_quantity=product.MIN_UNIT_PER_ORDER,
     )
-    now = datetime.now()
-    note_message = f"""{last_update_message(now)}:Giá đã cập nhật thành công; Price = {product_min_price}; Stock = {stock}; Pricemin = {product_min_price}, Pricemax = {product_max_price}"""
+
+    note_message, last_update_message = update_with_min_price(
+        price=product_min_price,
+        stock=stock,
+        min_quantity=product.MIN_UNIT_PER_ORDER,
+        unit_stock=product.UNIT_STOCK,
+        price_min=product_min_price,
+        price_max=product_max_price,
+    )
 
     product.Note = note_message
-    product.Last_update = last_update_message(now)
+    product.Last_update = last_update_message
     product.update()
 
 

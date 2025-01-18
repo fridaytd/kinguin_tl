@@ -9,22 +9,26 @@ from app.processes.main_process import process
 
 from seleniumbase import SB
 
-from app.utils.kinguin_client import KinguinClient
+from app.utils.kinguin_client import kinguin_client
 
-with SB(headless=True, uc=True, uc_cdp=True) as sb:
-    # url = "https://www.kinguin.net/ingame/c/297288/raid-shadow-legends-accounts?sort=price.lowestOffer%2CASC&page=1"
-    sb.activate_cdp_mode("https://google.com")
-    for index in range(4, 5):
-        product = Product.get(worksheet, index)
-        process(sb, product)
+from typing import get_type_hints
 
-        time.sleep(2)
+print(get_type_hints(kinguin_client.update_offer).values())
 
-    # state = get_state(
-    #     sb,
-    #     "https://www.kinguin.net/category/301675/delta-force-top-up-global-24-300-delta-coins",
-    # )
-    # print(extract_offers(state))
+# with SB(headless=True, uc=True, uc_cdp=True) as sb:
+#     # url = "https://www.kinguin.net/ingame/c/297288/raid-shadow-legends-accounts?sort=price.lowestOffer%2CASC&page=1"
+#     sb.activate_cdp_mode("https://google.com")
+#     for index in range(4, 5):
+#         product = Product.get(worksheet, index)
+#         process(sb, product)
+
+#         time.sleep(2)
+
+# state = get_state(
+#     sb,
+#     "https://www.kinguin.net/category/301675/delta-force-top-up-global-24-300-delta-coins",
+# )
+# print(extract_offers(state))
 
 
 # product = Product.get(worksheet, 4)
@@ -43,7 +47,7 @@ with SB(headless=True, uc=True, uc_cdp=True) as sb:
 # print(datetime.fromtimestamp(current_timestamp))
 
 # kinguin_client = KinguinClient()
-# print(kinguin_client.get_offer("677eea113af4333987f50107"))
+# print(kinguin_client.get_offer("677f0ab70ff5b7665e22d67f"))
 # print(
 #     kinguin_client.calculate_merchant_commission_infomation(
 #         kpc_product_id="66a36b450425a035454a7519", price=248

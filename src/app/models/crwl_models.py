@@ -33,3 +33,15 @@ class FinalProduct(BaseModel):
     externalId: str
     price: FinalProductPrice
     attributes: FinalProductAttribute
+
+
+class ExtractedData(BaseModel):
+    pass
+
+
+class ExtractedOffer(ExtractedData):
+    data: dict[str, CrwlOffer]
+
+
+class ExtractedFinalProduct(ExtractedData):
+    data: dict[str, FinalProduct]

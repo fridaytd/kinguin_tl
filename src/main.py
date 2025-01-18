@@ -7,8 +7,9 @@ from gspread.worksheet import Worksheet
 from app.utils.logger import logger
 from app.utils.gsheet import worksheet
 from app.models.gsheet_model import Product
-from app.processes.main_process import process, last_update_message
+from app.processes.main_process import process
 from pydantic import ValidationError
+from app.utils.update_messages import last_update_message
 
 
 def get_run_indexes(sheet: Worksheet) -> list[int]:
