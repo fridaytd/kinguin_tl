@@ -14,6 +14,13 @@ class PriceBase(BaseModel):
 #     pass
 
 
+class CommissionRule(BaseModel):
+    id: str
+    ruleName: str
+    fixedAmount: int
+    percentValue: int
+
+
 class Offer(BaseModel):
     id: str
     productId: str
@@ -25,3 +32,4 @@ class Offer(BaseModel):
     price: PriceBase
     declaredStock: int
     minQuantity: int | None = None
+    commissionRule: CommissionRule

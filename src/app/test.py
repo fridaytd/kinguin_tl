@@ -5,7 +5,8 @@ from app.utils.logger import logger
 from app.utils.gsheet import worksheet
 from app.processes.crwl import get_state, extract_offers, extract_ingame_category
 from app.models.gsheet_model import Product
-from app.processes.main_process import process
+from app.processes.main_process import process, extract_offer_id_from_product_link
+from app.utils.price_utils import price_to_priceiwtr, priceiwtr_to_price
 
 from seleniumbase import SB
 
@@ -66,4 +67,20 @@ from typing import get_type_hints
 #     declaredStock=stock,
 # )
 
-print(kinguin_client.get_offer("677f0ab70ff5b7665e22d67f"))
+for i in range(4, 19):
+    product = Product.get(worksheet, i)
+
+    offer = kinguin_client.get_offer(
+        extract_offer_id_from_product_link(
+            product.Product_link,
+        )
+    )
+    print(offer)
+
+    print(
+        price_to_priceiwtr(
+            price=offer.price.amount,
+            commission_rule=offer.commissionRule,
+        )
+    )
+    print("-----------------")

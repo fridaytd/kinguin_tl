@@ -153,67 +153,69 @@ class KinguinClient:
             logger.error(res.text)
             res.raise_for_status()
 
-    def from_priceiwtr_to_price(
-        self,
-        kpc_product_id: str,
-        priceiwtr: int,
-    ) -> int:
-        self.token.ensure_valid_token()
+    # def from_priceiwtr_to_price(
+    #     self,
+    #     kpc_product_id: str,
+    #     priceiwtr: int,
+    # ) -> int:
+    #     self.token.ensure_valid_token()
 
-        headers = {
-            "Authorization": f"Bearer {self.token.access_token}",
-            "Content-Type": "application/json",
-        }
+    #     headers = {
+    #         "Authorization": f"Bearer {self.token.access_token}",
+    #         "Content-Type": "application/json",
+    #     }
 
-        payload = {
-            "kpcProductId": kpc_product_id,
-            "priceIWTR": priceiwtr,
-        }
+    #     payload = {
+    #         "kpcProductId": kpc_product_id,
+    #         "priceIWTR": priceiwtr,
+    #         # "brokerId": broker_id,
+    #         "rule": "Ingame Default",
+    #     }
 
-        res = requests.get(
-            f"{KINGUIN_API_BASE_URL}/api/v1/offers/calculations/priceAndCommission",
-            headers=headers,
-            params=payload,
-        )
-        try:
-            res.raise_for_status()
+    #     res = requests.get(
+    #         f"{KINGUIN_API_BASE_URL}/api/v1/offers/calculations/priceAndCommission",
+    #         headers=headers,
+    #         params=payload,
+    #     )
+    #     try:
+    #         res.raise_for_status()
 
-        except HTTPError:
-            logger.error(res.text)
-            res.raise_for_status()
+    #     except HTTPError:
+    #         logger.error(res.text)
+    #         res.raise_for_status()
 
-        return res.json()["price"]
+    #     return res.json()
 
-    def from_price_to_priceiwtr(
-        self,
-        kpc_product_id: str,
-        price: int,
-    ) -> int:
-        self.token.ensure_valid_token()
+    # def from_price_to_priceiwtr(
+    #     self,
+    #     kpc_product_id: str,
+    #     price: int,
+    # ) -> int:
+    #     self.token.ensure_valid_token()
 
-        headers = {
-            "Authorization": f"Bearer {self.token.access_token}",
-            "Content-Type": "application/json",
-        }
+    #     headers = {
+    #         "Authorization": f"Bearer {self.token.access_token}",
+    #         "Content-Type": "application/json",
+    #     }
 
-        payload = {
-            "kpcProductId": kpc_product_id,
-            "price": price,
-        }
+    #     payload = {
+    #         "kpcProductId": kpc_product_id,
+    #         "price": price,
+    #     }
 
-        res = requests.get(
-            f"{KINGUIN_API_BASE_URL}/api/v1/offers/calculations/priceAndCommission",
-            headers=headers,
-            params=payload,
-        )
-        try:
-            res.raise_for_status()
+    #     res = requests.get(
+    #         f"{KINGUIN_API_BASE_URL}/api/v1/offers/calculations/priceAndCommission",
+    #         headers=headers,
+    #         params=payload,
+    #     )
+    #     try:
+    #         res.raise_for_status()
 
-        except HTTPError:
-            logger.error(res.text)
-            res.raise_for_status()
+    #     except HTTPError:
+    #         logger.error(res.text)
+    #         res.raise_for_status()
 
-        return res.json()["priceIWTR"]
+    #     return res.json()["priceIWTR"]
 
 
 kinguin_client = KinguinClient()

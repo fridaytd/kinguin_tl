@@ -12,7 +12,12 @@ from ..models.crwl_models import (
 from ..utils.kinguin_client import kinguin_client
 from ..shared.consts import CURRENCY
 from ..models.api_models import PriceBase
-from ..utils.price_utils import float_to_int_price, int_to_float_price
+from ..utils.price_utils import (
+    float_to_int_price,
+    int_to_float_price,
+    priceiwtr_to_price,
+    price_to_priceiwtr,
+)
 from ..utils.update_messages import (
     update_with_comparing_seller,
     update_with_min_price,
@@ -78,20 +83,20 @@ def offers_compare_flow(
 
     # Convert price to comparatable price
     real_product_min_price = int_to_float_price(
-        kinguin_client.from_priceiwtr_to_price(
-            my_offer.productId,
-            float_to_int_price(
+        priceiwtr_to_price(
+            priceiwtr=float_to_int_price(
                 product_min_priceiwtr,
             ),
+            commission_rule=my_offer.commissionRule,
         )
     )
     real_product_max_price = (
         int_to_float_price(
-            kinguin_client.from_priceiwtr_to_price(
-                my_offer.productId,
-                float_to_int_price(
+            priceiwtr_to_price(
+                priceiwtr=float_to_int_price(
                     product_max_priceiwtr,
                 ),
+                commission_rule=my_offer.commissionRule,
             )
         )
         if product_max_priceiwtr
@@ -149,9 +154,9 @@ def offers_compare_flow(
     else:
         logger.info(f"Update price by price of {min_price_offer.seller.name}")
         priceiwtr_of_min_offer = int_to_float_price(
-            kinguin_client.from_price_to_priceiwtr(
-                my_offer.productId,
-                min_price_offer.price.amount,
+            price_to_priceiwtr(
+                price=min_price_offer.price.amount,
+                commission_rule=my_offer.commissionRule,
             )
         )
         new_price_change = calculate_priceiwtr_change_by_min_offer(
@@ -201,20 +206,20 @@ def ingame_category_compare_flow(
 
     # Convert price to comparatable price
     real_product_min_price = int_to_float_price(
-        kinguin_client.from_priceiwtr_to_price(
-            my_offer.productId,
-            float_to_int_price(
+        priceiwtr_to_price(
+            priceiwtr=float_to_int_price(
                 product_min_priceiwtr,
             ),
+            commission_rule=my_offer.commissionRule,
         )
     )
     real_product_max_price = (
         int_to_float_price(
-            kinguin_client.from_priceiwtr_to_price(
-                my_offer.productId,
-                float_to_int_price(
+            priceiwtr_to_price(
+                priceiwtr=float_to_int_price(
                     product_max_priceiwtr,
                 ),
+                commission_rule=my_offer.commissionRule,
             )
         )
         if product_max_priceiwtr
