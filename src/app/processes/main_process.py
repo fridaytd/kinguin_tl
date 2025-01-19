@@ -16,7 +16,6 @@ from ..utils.price_utils import float_to_int_price, int_to_float_price
 from ..utils.update_messages import (
     update_with_comparing_seller,
     update_with_min_price,
-    no_need_update,
 )
 from ..models.api_models import Offer
 
@@ -29,7 +28,7 @@ def update_offer(
     offer_id: str,
     price: PriceBase,
     declaredStock: int,
-    min_quantity: int,
+    min_quantity: int | None,
 ):
     kinguin_client.update_offer(
         offer_id=offer_id,
@@ -99,18 +98,16 @@ def offers_compare_flow(
         else None
     )
 
-    is_include_my_offer: bool = False
-
     min_price_offer: CrwlOffer | None = None
 
     # Filter valid offer and find min offer and find my offer if it valid
     for offer_id, offer in offers.items():
         real_offer_price = int_to_float_price(offer.price.amount)
 
-        if my_offer.id == offer_id:
-            is_include_my_offer = True
+        # if my_offer.id == offer_id:
+        #     is_include_my_offer = True
 
-        if my_offer.id == offer_id or offer.seller.name not in blacklist:
+        if offer.seller.name not in blacklist:
             if (
                 real_product_max_price
                 and real_product_min_price <= real_offer_price <= real_product_max_price
@@ -125,124 +122,56 @@ def offers_compare_flow(
                 ):
                     min_price_offer = offer
 
-    if not is_include_my_offer:
-        if min_price_offer is None:
-            if product_max_priceiwtr:
-                logger.info("Update by max price")
-                target_priceiwtr = product_max_priceiwtr
-                note_message, last_update_message = update_with_min_price(
-                    price=target_priceiwtr,
-                    stock=stock_without_unit,
-                    min_quantity=product.MIN_UNIT_PER_ORDER,
-                    unit_stock=product.UNIT_STOCK,
-                    price_min=product_min_priceiwtr,
-                    price_max=product_max_priceiwtr,
-                )
+    if min_price_offer is None:
+        if product_max_priceiwtr:
+            logger.info("Update by max price")
+            target_priceiwtr = round(product_max_priceiwtr, product.DONGIA_LAMTRON)
+            note_message, last_update_message = update_with_min_price(
+                price=target_priceiwtr,
+                stock=stock_without_unit,
+                min_quantity=product.MIN_UNIT_PER_ORDER,
+                unit_stock=product.UNIT_STOCK,
+                price_min=product_min_priceiwtr,
+                price_max=product_max_priceiwtr,
+            )
 
-            else:
-                logger.info("Update by min price")
-                target_priceiwtr = product_min_priceiwtr
-                note_message, last_update_message = update_with_min_price(
-                    price=target_priceiwtr,
-                    stock=stock_without_unit,
-                    unit_stock=product.UNIT_STOCK,
-                    min_quantity=product.MIN_UNIT_PER_ORDER,
-                    price_min=product_min_priceiwtr,
-                    price_max=product_max_priceiwtr,
-                )
         else:
-            logger.info(f"Update price by price of {min_price_offer.seller.name}")
-            priceiwtr_of_min_offer = int_to_float_price(
-                kinguin_client.from_price_to_priceiwtr(
-                    my_offer.productId,
-                    min_price_offer.price.amount,
-                )
-            )
-            new_price_change = calculate_priceiwtr_change_by_min_offer(
-                product=product,
-                product_min_priceiwtr=product_min_priceiwtr,
-                product_max_priceiwtr=product_max_priceiwtr,
-                priceiwtr_of_min_offer=priceiwtr_of_min_offer,
-            )
-            logger.info(new_price_change)
-            target_priceiwtr = new_price_change
-            note_message, last_update_message = update_with_comparing_seller(
+            logger.info("Update by min price")
+            target_priceiwtr = round(product_min_priceiwtr, product.DONGIA_LAMTRON)
+            note_message, last_update_message = update_with_min_price(
                 price=target_priceiwtr,
                 stock=stock_without_unit,
                 unit_stock=product.UNIT_STOCK,
                 min_quantity=product.MIN_UNIT_PER_ORDER,
                 price_min=product_min_priceiwtr,
                 price_max=product_max_priceiwtr,
-                comparing_price=priceiwtr_of_min_offer,
-                comparing_seller=min_price_offer.seller.name,
             )
-
     else:
-        if min_price_offer:
-            if min_price_offer.id == my_offer.id:
-                target_priceiwtr = None
-                logger.info("Do not need to update")
-                note_message, last_update_message = no_need_update(
-                    my_seller=min_price_offer.seller.name,
-                    price=my_offer.priceIWTR.amount,
-                    stock=my_offer.declaredStock // product.UNIT_STOCK,
-                    min_quantity=product.MIN_UNIT_PER_ORDER,
-                    unit_stock=product.UNIT_STOCK,
-                    price_min=product_min_priceiwtr,
-                    price_max=product_max_priceiwtr,
-                )
-
-            else:
-                logger.info(f"Update price by price of {min_price_offer.seller.name}")
-                priceiwtr_of_min_offer = int_to_float_price(
-                    kinguin_client.from_price_to_priceiwtr(
-                        my_offer.productId,
-                        min_price_offer.price.amount,
-                    )
-                )
-                new_price_change = calculate_priceiwtr_change_by_min_offer(
-                    product=product,
-                    product_min_priceiwtr=product_min_priceiwtr,
-                    product_max_priceiwtr=product_max_priceiwtr,
-                    priceiwtr_of_min_offer=priceiwtr_of_min_offer,
-                )
-                logger.info(new_price_change)
-                target_priceiwtr = new_price_change
-                note_message, last_update_message = update_with_comparing_seller(
-                    price=target_priceiwtr,
-                    stock=stock_without_unit,
-                    unit_stock=product.UNIT_STOCK,
-                    min_quantity=product.MIN_UNIT_PER_ORDER,
-                    price_min=product_min_priceiwtr,
-                    price_max=product_max_priceiwtr,
-                    comparing_price=priceiwtr_of_min_offer,
-                    comparing_seller=min_price_offer.seller.name,
-                )
-
-        else:
-            if product_max_priceiwtr:
-                logger.info("Update by max price")
-                target_priceiwtr = product_max_priceiwtr
-                note_message, last_update_message = update_with_min_price(
-                    price=target_priceiwtr,
-                    stock=stock_without_unit,
-                    min_quantity=product.MIN_UNIT_PER_ORDER,
-                    unit_stock=product.UNIT_STOCK,
-                    price_min=product_min_priceiwtr,
-                    price_max=product_max_priceiwtr,
-                )
-
-            else:
-                logger.info("Update by min price")
-                target_priceiwtr = product_min_priceiwtr
-                note_message, last_update_message = update_with_min_price(
-                    price=target_priceiwtr,
-                    stock=stock_without_unit,
-                    min_quantity=product.MIN_UNIT_PER_ORDER,
-                    unit_stock=product.UNIT_STOCK,
-                    price_min=product_min_priceiwtr,
-                    price_max=product_max_priceiwtr,
-                )
+        logger.info(f"Update price by price of {min_price_offer.seller.name}")
+        priceiwtr_of_min_offer = int_to_float_price(
+            kinguin_client.from_price_to_priceiwtr(
+                my_offer.productId,
+                min_price_offer.price.amount,
+            )
+        )
+        new_price_change = calculate_priceiwtr_change_by_min_offer(
+            product=product,
+            product_min_priceiwtr=product_min_priceiwtr,
+            product_max_priceiwtr=product_max_priceiwtr,
+            priceiwtr_of_min_offer=priceiwtr_of_min_offer,
+        )
+        logger.info(new_price_change)
+        target_priceiwtr = new_price_change
+        note_message, last_update_message = update_with_comparing_seller(
+            price=target_priceiwtr,
+            stock=stock_without_unit,
+            unit_stock=product.UNIT_STOCK,
+            min_quantity=product.MIN_UNIT_PER_ORDER,
+            price_min=product_min_priceiwtr,
+            price_max=product_max_priceiwtr,
+            comparing_price=priceiwtr_of_min_offer,
+            comparing_seller=min_price_offer.seller.name,
+        )
 
     if target_priceiwtr:
         update_offer(
@@ -297,10 +226,11 @@ def ingame_category_compare_flow(
     for product_id, final_product in final_products.items():
         real_offer_price = int_to_float_price(final_product.price.calculated)
         if (
-            product_max_priceiwtr
-            and product_min_priceiwtr <= real_offer_price <= product_max_priceiwtr
+            real_product_max_price
+            and real_product_min_price <= real_offer_price <= real_product_max_price
         ) or (
-            product_max_priceiwtr is None and product_min_priceiwtr <= real_offer_price
+            real_product_max_price is None
+            and real_product_min_price <= real_offer_price
         ):
             valid_final_products[product_id] = final_product
 

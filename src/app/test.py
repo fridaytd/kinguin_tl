@@ -13,7 +13,7 @@ from app.utils.kinguin_client import kinguin_client
 
 from typing import get_type_hints
 
-print(get_type_hints(kinguin_client.update_offer).values())
+# print(get_type_hints(kinguin_client.update_offer).values())
 
 # with SB(headless=True, uc=True, uc_cdp=True) as sb:
 #     # url = "https://www.kinguin.net/ingame/c/297288/raid-shadow-legends-accounts?sort=price.lowestOffer%2CASC&page=1"
@@ -65,3 +65,5 @@ print(get_type_hints(kinguin_client.update_offer).values())
 #     price=price,
 #     declaredStock=stock,
 # )
+
+print(kinguin_client.get_offer("677f0ab70ff5b7665e22d67f"))

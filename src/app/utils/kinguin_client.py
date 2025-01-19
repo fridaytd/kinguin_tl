@@ -124,7 +124,7 @@ class KinguinClient:
         offer_id: str,
         price: PriceBase,
         declaredStock: int,
-        min_quantity: int,
+        min_quantity: int | None,
     ) -> None:
         self.token.ensure_valid_token()
 
@@ -136,8 +136,10 @@ class KinguinClient:
         payload = {
             "price": price.model_dump(mode="json"),
             "declaredStock": declaredStock,
-            # "minQuantity": min_quantity,
         }
+
+        if min_quantity:
+            payload["minQuantity"] = min_quantity
 
         res = requests.patch(
             f"{KINGUIN_API_BASE_URL}/api/v1/offers/{offer_id}",

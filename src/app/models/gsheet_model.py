@@ -88,14 +88,14 @@ class Product(ColSheetModel):
     IDSHEET_MIN: Annotated[str, {COL_META_FIELD_NAME: "L"}]
     SHEET_MIN: Annotated[str, {COL_META_FIELD_NAME: "M"}]
     CELL_MIN: Annotated[str, {COL_META_FIELD_NAME: "N"}]
-    IDSHEET_MAX: Annotated[str, {COL_META_FIELD_NAME: "O"}]
-    SHEET_MAX: Annotated[str, {COL_META_FIELD_NAME: "P"}]
-    CELL_MAX: Annotated[str, {COL_META_FIELD_NAME: "Q"}]
+    IDSHEET_MAX: Annotated[str | None, {COL_META_FIELD_NAME: "O"}] = None
+    SHEET_MAX: Annotated[str | None, {COL_META_FIELD_NAME: "P"}] = None
+    CELL_MAX: Annotated[str | None, {COL_META_FIELD_NAME: "Q"}] = None
     IDSHEET_STOCK: Annotated[str, {COL_META_FIELD_NAME: "R"}]
     SHEET_STOCK: Annotated[str, {COL_META_FIELD_NAME: "S"}]
     CELL_STOCK: Annotated[str, {COL_META_FIELD_NAME: "T"}]
     UNIT_STOCK: Annotated[int, {COL_META_FIELD_NAME: "U"}]
-    MIN_UNIT_PER_ORDER: Annotated[int, {COL_META_FIELD_NAME: "V"}]
+    MIN_UNIT_PER_ORDER: Annotated[int | None, {COL_META_FIELD_NAME: "V"}] = None
     IDSHEET_BLACKLIST: Annotated[str, {COL_META_FIELD_NAME: "w"}]
     SHEET_BLACKLIST: Annotated[str, {COL_META_FIELD_NAME: "X"}]
     CELL_BLACKLIST: Annotated[str, {COL_META_FIELD_NAME: "Y"}]
@@ -117,6 +117,9 @@ class Product(ColSheetModel):
         )
 
     def max_price(self) -> float | None:
+        if self.IDSHEET_MAX is None or self.SHEET_MAX is None or self.CELL_MAX is None:
+            return None
+
         g_client = service_account(ROOT_PATH.joinpath(os.environ["KEYS_PATH"]))
 
         res = g_client.http_client.values_get(
