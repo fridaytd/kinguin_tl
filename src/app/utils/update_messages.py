@@ -30,11 +30,13 @@ def update_with_comparing_seller(
     min_quantity: int | None,
     comparing_price: float,
     comparing_seller: str,
+    comparing_seller_actual_price: float,
+    comparing_seller_unit_price: float | int,
     price_max: float | None = None,
 ) -> tuple[str, str]:
     now = datetime.now()
     _last_update_message = last_update_message(now)
-    note_message = f"""{last_update_message(now)}:Giá đã cập nhật thành công; Price = {price}; Stock = {stock}; Unit Stock = {unit_stock}; MinUnitPerOrder = {min_quantity}; Pricemin = {price_min}, Pricemax = {price_max}, , GiaSosanh = {comparing_price} - Seller: {comparing_seller}"""
+    note_message = f"""{last_update_message(now)}:Giá đã cập nhật thành công; Price = {price}; Stock = {stock}; Unit Stock = {unit_stock}; MinUnitPerOrder = {min_quantity}; Pricemin = {price_min}, Pricemax = {price_max}, , GiaSosanh = {comparing_price} - Seller: {comparing_seller}, SellerActualPrice: {comparing_seller_actual_price}, SellerUnitPrice: {comparing_seller_unit_price}"""
     return note_message, _last_update_message
 
 

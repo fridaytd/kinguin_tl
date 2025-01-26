@@ -17,6 +17,8 @@ from ..utils.price_utils import (
     int_to_float_price,
     priceiwtr_to_price,
     price_to_priceiwtr,
+    unit_price_to_price,
+    unit_price_to_priceiwtr,
 )
 from ..utils.update_messages import (
     update_with_comparing_seller,
@@ -107,7 +109,12 @@ def offers_compare_flow(
 
     # Filter valid offer and find min offer and find my offer if it valid
     for offer_id, offer in offers.items():
-        real_offer_price = int_to_float_price(offer.price.amount)
+        real_offer_price = int_to_float_price(
+            unit_price_to_price(
+                unit_price=offer.unitPrice,
+                min_quantity=product.MIN_UNIT_PER_ORDER,
+            )
+        )
 
         # if my_offer.id == offer_id:
         #     is_include_my_offer = True
@@ -154,8 +161,9 @@ def offers_compare_flow(
     else:
         logger.info(f"Update price by price of {min_price_offer.seller.name}")
         priceiwtr_of_min_offer = int_to_float_price(
-            price_to_priceiwtr(
-                price=min_price_offer.price.amount,
+            unit_price_to_priceiwtr(
+                unit_price=min_price_offer.unitPrice,
+                min_quantity=product.MIN_UNIT_PER_ORDER,
                 commission_rule=my_offer.commissionRule,
             )
         )
@@ -176,6 +184,12 @@ def offers_compare_flow(
             price_max=product_max_priceiwtr,
             comparing_price=priceiwtr_of_min_offer,
             comparing_seller=min_price_offer.seller.name,
+            comparing_seller_actual_price=int_to_float_price(
+                price_to_priceiwtr(
+                    min_price_offer.price.amount, my_offer.commissionRule
+                )
+            ),
+            comparing_seller_unit_price=min_price_offer.unitPrice,
         )
 
     if target_priceiwtr:
@@ -229,7 +243,12 @@ def ingame_category_compare_flow(
     valid_final_products: dict[str, FinalProduct] = {}
 
     for product_id, final_product in final_products.items():
-        real_offer_price = int_to_float_price(final_product.price.calculated)
+        real_offer_price = int_to_float_price(
+            unit_price_to_price(
+                unit_price=final_product.ingameAttributes.unitPrice,
+                min_quantity=product.MIN_UNIT_PER_ORDER,
+            )
+        )
         if (
             real_product_max_price
             and real_product_min_price <= real_offer_price <= real_product_max_price

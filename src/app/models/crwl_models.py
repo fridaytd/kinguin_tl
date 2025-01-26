@@ -16,6 +16,8 @@ class CrwlOffer(BaseModel):
     productId: str
     price: OfferPrice
     seller: Seller
+    minQuantity: int | None
+    unitPrice: float | int
 
 
 class FinalProductPrice(BaseModel):
@@ -27,12 +29,18 @@ class FinalProductAttribute(BaseModel):
     urlKey: str
 
 
+class FinalProductIngameAttributes(BaseModel):
+    minQuantity: int | None
+    unitPrice: float | int
+
+
 class FinalProduct(BaseModel):
     id: str
     offerId: str
     externalId: str
     price: FinalProductPrice
     attributes: FinalProductAttribute
+    ingameAttributes: FinalProductIngameAttributes
 
 
 class ExtractedData(BaseModel):

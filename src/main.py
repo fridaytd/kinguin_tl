@@ -1,3 +1,5 @@
+import os
+
 from datetime import datetime
 import time
 from seleniumbase import SB
@@ -41,6 +43,8 @@ def main(sb):
             product = Product.get(worksheet, index)
 
             process(sb, product)
+            logger.info(f"Sleep for {product.RELAX_TIME}s")
+            time.sleep(product.RELAX_TIME)
         except ValidationError as e:
             logger.error(f"VALIDATION ERROR AT ROW: {index}")
             logger.error(e.errors())
@@ -81,8 +85,21 @@ def main(sb):
 
         time.sleep(4)
 
+    logger.info(f"Sleep for {os.getenv('RELAX_TIME_EACH_ROUND', '10')}s")
+    time.sleep(
+        int(
+            os.getenv(
+                "RELAX_TIME_EACH_ROUND",
+                "10",
+            )
+        )
+    )
+
 
 with SB(uc=True, headless=True) as sb:
     sb.activate_cdp_mode("https://google.com")
     while True:
-        main(sb)
+        try:
+            main(sb)
+        except Exception:
+            time.sleep(30)

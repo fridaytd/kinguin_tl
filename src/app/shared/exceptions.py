@@ -4,3 +4,7 @@ class SheetError(Exception):
 
 class CrwlError(Exception):
     pass
+
+
+class ApiError(Exception):
+    pass

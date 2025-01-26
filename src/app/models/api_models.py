@@ -32,4 +32,5 @@ class Offer(BaseModel):
     price: PriceBase
     declaredStock: int
     minQuantity: int | None = None
+    unitPrice: float | int
     commissionRule: CommissionRule

@@ -48,7 +48,7 @@ from typing import get_type_hints
 # print(datetime.fromtimestamp(current_timestamp))
 
 # kinguin_client = KinguinClient()
-# print(kinguin_client.get_offer("677f0ab70ff5b7665e22d67f"))
+print(kinguin_client.get_offer("66e804dc5dc9110001884d70"))
 # print(
 #     kinguin_client.calculate_merchant_commission_infomation(
 #         kpc_product_id="66a36b450425a035454a7519", price=248
@@ -67,20 +67,20 @@ from typing import get_type_hints
 #     declaredStock=stock,
 # )
 
-for i in range(4, 19):
-    product = Product.get(worksheet, i)
+# for i in range(4, 19):
+#     product = Product.get(worksheet, i)
 
-    offer = kinguin_client.get_offer(
-        extract_offer_id_from_product_link(
-            product.Product_link,
-        )
-    )
-    print(offer)
+#     offer = kinguin_client.get_offer(
+#         extract_offer_id_from_product_link(
+#             product.Product_link,
+#         )
+#     )
+#     print(offer)
 
-    print(
-        price_to_priceiwtr(
-            price=offer.price.amount,
-            commission_rule=offer.commissionRule,
-        )
-    )
-    print("-----------------")
+#     print(
+#         price_to_priceiwtr(
+#             price=offer.price.amount,
+#             commission_rule=offer.commissionRule,
+#         )
+#     )
+#     print("-----------------")

@@ -7,6 +7,7 @@ from requests.exceptions import HTTPError
 from ..shared.consts import KINGUIN_TOKEN_BASE_URL, KINGUIN_API_BASE_URL
 from .logger import logger
 from ..models.api_models import Offer, PriceBase
+from ..shared.exceptions import ApiError
 
 
 class Token:
@@ -26,7 +27,11 @@ class Token:
             },
         )
 
-        res.raise_for_status()
+        try:
+            res.raise_for_status()
+        except Exception as e:
+            logger.error(e)
+            raise ApiError(res.json().get("message", ""))
 
         res_payload: dict = res.json()
 
@@ -58,7 +63,11 @@ class Token:
             },
         )
 
-        res.raise_for_status()
+        try:
+            res.raise_for_status()
+        except Exception as e:
+            logger.error(e)
+            raise ApiError(res.json().get("message", ""))
 
         res_payload: dict = res.json()
 
@@ -85,6 +94,24 @@ class KinguinClient:
         self,
     ):
         self.token: Token = Token()
+
+    def get_offer_without_model(
+        self,
+        offer_id: str,
+    ):
+        self.token.ensure_valid_token()
+
+        headers = {
+            "Authorization": f"Bearer {self.token.access_token}",
+            "Content-Type": "application/json",
+        }
+
+        res = requests.get(
+            f"{KINGUIN_API_BASE_URL}/api/v1/offers/{offer_id}", headers=headers
+        )
+        res.raise_for_status()
+
+        return res.json()
 
     def get_offer(
         self,
@@ -151,7 +178,7 @@ class KinguinClient:
 
         except HTTPError:
             logger.error(res.text)
-            res.raise_for_status()
+            raise ApiError(res.json().get("message", ""))
 
     # def from_priceiwtr_to_price(
     #     self,
