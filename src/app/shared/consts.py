@@ -8,4 +8,4 @@ KINGUIN_API_BASE_URL: Final[str] = "https://gateway.kinguin.net/sales-manager-ap
 
 CURRENCY: Final[str] = "EUR"
 
-PRICE_CONVERT_RATE: Final[int] = 100
+API_VS_REAL_PRICE_CONVERT_RATE: Final[int] = 100

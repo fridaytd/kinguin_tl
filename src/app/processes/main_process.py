@@ -19,12 +19,22 @@ from ..utils.price_utils import (
     price_to_priceiwtr,
     unit_price_to_price,
     unit_price_to_priceiwtr,
+    to_real_unit_price,
+    back_to_abstract_unit_price,
 )
 from ..utils.update_messages import (
     update_with_comparing_seller,
     update_with_min_price,
 )
 from ..models.api_models import Offer
+from ..models.prices import (
+    RealUnitPrice,
+    RealUnitPricePerUnitStock,
+    APIUnitPrice,
+    RealPrice,
+    PriceCustomerPay,
+    PriceIWTR,
+)
 
 
 def extract_offer_id_from_product_link(link: str) -> str:
@@ -46,28 +56,32 @@ def update_offer(
     return
 
 
-def calculate_priceiwtr_change_by_min_offer(
+def calculate_unit_price_change_by_min_offer(
     product: Product,
-    product_min_priceiwtr: float,
-    product_max_priceiwtr: float | None,
-    priceiwtr_of_min_offer: float,
-) -> float:
-    new_min_price_random = (
-        priceiwtr_of_min_offer - product.DONGIAGIAM_MAX
-        if priceiwtr_of_min_offer - product.DONGIAGIAM_MAX >= product_min_priceiwtr
-        else product_min_priceiwtr
+    product_min_real_unit_price_per_unit_stock: RealUnitPricePerUnitStock,
+    product_max_real_unit_price_per_unit_stock: RealUnitPricePerUnitStock | None,
+    compare_real_unit_price_per_unit_stock: RealUnitPricePerUnitStock,
+) -> RealUnitPricePerUnitStock:
+    new_min_unit_price_random = (
+        compare_real_unit_price_per_unit_stock.amount - product.DONGIAGIAM_MAX
+        if compare_real_unit_price_per_unit_stock.amount - product.DONGIAGIAM_MAX
+        >= product_min_real_unit_price_per_unit_stock.amount
+        else product_min_real_unit_price_per_unit_stock.amount
     )
-    new_max_price_random = (
-        priceiwtr_of_min_offer - product.DONGIAGIAM_MIN
-        if priceiwtr_of_min_offer - product.DONGIAGIAM_MIN >= product_min_priceiwtr
-        else product_min_priceiwtr
+    new_max_unit_price_random = (
+        compare_real_unit_price_per_unit_stock.amount - product.DONGIAGIAM_MIN
+        if compare_real_unit_price_per_unit_stock.amount - product.DONGIAGIAM_MIN
+        >= product_min_real_unit_price_per_unit_stock.amount
+        else product_min_real_unit_price_per_unit_stock.amount
     )
-    new_price_change = round(
-        random.uniform(new_min_price_random, new_max_price_random),
+    new_unit_price_change = round(
+        random.uniform(new_min_unit_price_random, new_max_unit_price_random),
         product.DONGIA_LAMTRON,
     )
 
-    return new_price_change
+    return RealUnitPricePerUnitStock(
+        amount=new_unit_price_change, unit_stock=product.UNIT_STOCK
+    )
 
 
 def offers_compare_flow(
@@ -78,129 +92,203 @@ def offers_compare_flow(
     valid_crwl_offers: dict[str, CrwlOffer] = {}
 
     # Get product data
-    product_min_priceiwtr = product.min_price()
-    product_max_priceiwtr = product.max_price()
+    _product_min_price: float = product.min_price()
+    product_min_real_unit_price_per_unit_stock = RealUnitPricePerUnitStock(
+        amount=_product_min_price,
+        unit_stock=product.UNIT_STOCK,
+    )
+
+    _product_max_price: float | None = product.max_price()
+    product_max_real_unit_price_per_unit_stock: RealUnitPricePerUnitStock | None = (
+        RealUnitPricePerUnitStock(
+            amount=_product_max_price,
+            unit_stock=product.UNIT_STOCK,
+        )
+        if _product_max_price
+        else None
+    )
     blacklist = product.blacklist()
     stock_without_unit = product.stock()
 
-    # Convert price to comparatable price
-    real_product_min_price = int_to_float_price(
-        priceiwtr_to_price(
-            priceiwtr=float_to_int_price(
-                product_min_priceiwtr,
-            ),
-            commission_rule=my_offer.commissionRule,
-        )
+    logger.info(
+        f"Product min unit price: {product_min_real_unit_price_per_unit_stock.amount}"
     )
-    real_product_max_price = (
-        int_to_float_price(
-            priceiwtr_to_price(
-                priceiwtr=float_to_int_price(
-                    product_max_priceiwtr,
-                ),
-                commission_rule=my_offer.commissionRule,
-            )
-        )
-        if product_max_priceiwtr
-        else None
+    logger.info(
+        f"Product max unit price: {product_max_real_unit_price_per_unit_stock.amount if product_max_real_unit_price_per_unit_stock else None}"
     )
 
-    min_price_offer: CrwlOffer | None = None
+    min_unit_price_offer: CrwlOffer | None = None
 
-    # Filter valid offer and find min offer and find my offer if it valid
+    # Filter valid offer and find min unit price offer
     for offer_id, offer in offers.items():
-        real_offer_price = int_to_float_price(
-            unit_price_to_price(
-                unit_price=offer.unitPrice,
-                min_quantity=product.MIN_UNIT_PER_ORDER,
+        # Convert to the same unit on sheet
+        offer_api_unit_price: APIUnitPrice = APIUnitPrice(amount=offer.unitPrice)
+        offer_real_unit_price: RealUnitPrice = offer_api_unit_price.to_real_unit_price()
+        offer_real_unit_price_per_unit_stock = (
+            offer_real_unit_price.to_unit_price_per_unit_stock(
+                unit_stock=product.UNIT_STOCK
             )
         )
 
-        # if my_offer.id == offer_id:
-        #     is_include_my_offer = True
-
+        # print(
+        #     f"Seller: {offer.seller.name}, unit price: {offer_real_unit_price_per_unit_stock.amount}"
+        # )
         if offer.seller.name not in blacklist:
             if (
-                real_product_max_price
-                and real_product_min_price <= real_offer_price <= real_product_max_price
+                product_max_real_unit_price_per_unit_stock
+                and product_min_real_unit_price_per_unit_stock.amount
+                <= offer_real_unit_price_per_unit_stock.amount
+                <= product_max_real_unit_price_per_unit_stock.amount
             ) or (
-                real_product_max_price is None
-                and real_product_min_price <= real_offer_price
+                product_max_real_unit_price_per_unit_stock is None
+                and product_min_real_unit_price_per_unit_stock.amount
+                <= offer_real_unit_price_per_unit_stock.amount
             ):
                 valid_crwl_offers[offer_id] = offer
                 if (
-                    min_price_offer is None
-                    or offer.price.amount < min_price_offer.price.amount
+                    min_unit_price_offer is None
+                    or offer.unitPrice < min_unit_price_offer.unitPrice
                 ):
-                    min_price_offer = offer
+                    min_unit_price_offer = offer
 
-    if min_price_offer is None:
-        if product_max_priceiwtr:
+    if min_unit_price_offer is None:
+        if product_max_real_unit_price_per_unit_stock:
             logger.info("Update by max price")
-            target_priceiwtr = round(product_max_priceiwtr, product.DONGIA_LAMTRON)
+            # Round target real unit price per unit stock
+            product_max_real_unit_price_per_unit_stock.amount = round(
+                product_max_real_unit_price_per_unit_stock.amount,
+                product.DONGIA_LAMTRON,
+            )
+            # Convert to api unit price
+            target_api_unit_price: APIUnitPrice = (
+                product_max_real_unit_price_per_unit_stock.to_api_unit_price()
+            )
+            # Convert to price customer pay
+            target_price_customer_pay: PriceCustomerPay = (
+                target_api_unit_price.to_price_customer_pay(
+                    min_quantity_per_order=product.UNIT_STOCK
+                    * product.MIN_UNIT_PER_ORDER
+                    if product.MIN_UNIT_PER_ORDER
+                    else 1
+                )
+            )
+            # Convert to price I want to receive
+            target_priceiwtr = target_price_customer_pay.to_priceiwtr(
+                commission_rule=my_offer.commissionRule
+            )
             note_message, last_update_message = update_with_min_price(
-                price=target_priceiwtr,
+                price=target_price_customer_pay.to_real_price().amount,
+                priceiwtr=target_priceiwtr.to_real_price().amount,
+                unit_price=product_max_real_unit_price_per_unit_stock.amount,
                 stock=stock_without_unit,
                 min_quantity=product.MIN_UNIT_PER_ORDER,
                 unit_stock=product.UNIT_STOCK,
-                price_min=product_min_priceiwtr,
-                price_max=product_max_priceiwtr,
+                price_min=product_min_real_unit_price_per_unit_stock.amount,
+                price_max=product_max_real_unit_price_per_unit_stock.amount,
             )
 
         else:
             logger.info("Update by min price")
-            target_priceiwtr = round(product_min_priceiwtr, product.DONGIA_LAMTRON)
+            # Round target real unit price per unit stock
+            product_min_real_unit_price_per_unit_stock.amount = round(
+                product_min_real_unit_price_per_unit_stock.amount,
+                product.DONGIA_LAMTRON,
+            )
+            # Convert to api unit price
+            target_api_unit_price: APIUnitPrice = (
+                product_min_real_unit_price_per_unit_stock.to_api_unit_price()
+            )
+            # Convert to price customer pay
+            target_price_customer_pay: PriceCustomerPay = (
+                target_api_unit_price.to_price_customer_pay(
+                    min_quantity_per_order=product.UNIT_STOCK
+                    * product.MIN_UNIT_PER_ORDER
+                    if product.MIN_UNIT_PER_ORDER
+                    else 1
+                )
+            )
+            # Convert to price I want to receive
+            target_priceiwtr = target_price_customer_pay.to_priceiwtr(
+                commission_rule=my_offer.commissionRule
+            )
             note_message, last_update_message = update_with_min_price(
-                price=target_priceiwtr,
+                price=target_price_customer_pay.to_real_price().amount,
+                priceiwtr=target_priceiwtr.to_real_price().amount,
+                unit_price=product_min_real_unit_price_per_unit_stock.amount,
                 stock=stock_without_unit,
-                unit_stock=product.UNIT_STOCK,
                 min_quantity=product.MIN_UNIT_PER_ORDER,
-                price_min=product_min_priceiwtr,
-                price_max=product_max_priceiwtr,
+                unit_stock=product.UNIT_STOCK,
+                price_min=product_min_real_unit_price_per_unit_stock.amount,
+                price_max=None,
             )
     else:
-        logger.info(f"Update price by price of {min_price_offer.seller.name}")
-        priceiwtr_of_min_offer = int_to_float_price(
-            unit_price_to_priceiwtr(
-                unit_price=min_price_offer.unitPrice,
-                min_quantity=product.MIN_UNIT_PER_ORDER,
-                commission_rule=my_offer.commissionRule,
+        logger.info(f"Update price by price of {min_unit_price_offer.seller.name}")
+
+        # Convert to the same unit on sheet
+        compare_api_unit_price: APIUnitPrice = APIUnitPrice(
+            amount=min_unit_price_offer.unitPrice
+        )
+        compare_real_unit_price: RealUnitPrice = (
+            compare_api_unit_price.to_real_unit_price()
+        )
+        compare_real_unit_price_per_unit_stock: RealUnitPricePerUnitStock = (
+            compare_real_unit_price.to_unit_price_per_unit_stock(
+                unit_stock=product.UNIT_STOCK
             )
         )
-        new_price_change = calculate_priceiwtr_change_by_min_offer(
+
+        target_real_unit_price_per_unit_stock = calculate_unit_price_change_by_min_offer(
             product=product,
-            product_min_priceiwtr=product_min_priceiwtr,
-            product_max_priceiwtr=product_max_priceiwtr,
-            priceiwtr_of_min_offer=priceiwtr_of_min_offer,
+            product_min_real_unit_price_per_unit_stock=product_min_real_unit_price_per_unit_stock,
+            product_max_real_unit_price_per_unit_stock=product_max_real_unit_price_per_unit_stock,
+            compare_real_unit_price_per_unit_stock=compare_real_unit_price_per_unit_stock,
         )
-        logger.info(new_price_change)
-        target_priceiwtr = new_price_change
+        logger.info(target_real_unit_price_per_unit_stock.amount)
+        target_api_unit_price = (
+            target_real_unit_price_per_unit_stock.to_api_unit_price()
+        )
+        target_price_customer_pay = target_api_unit_price.to_price_customer_pay(
+            min_quantity_per_order=product.MIN_UNIT_PER_ORDER * product.UNIT_STOCK
+            if product.MIN_UNIT_PER_ORDER
+            else 1
+        )
+        target_priceiwtr = target_price_customer_pay.to_priceiwtr(
+            commission_rule=my_offer.commissionRule
+        )
         note_message, last_update_message = update_with_comparing_seller(
-            price=target_priceiwtr,
+            price=target_price_customer_pay.to_real_price().amount,
+            priceiwtr=target_priceiwtr.to_real_price().amount,
+            unit_price=target_real_unit_price_per_unit_stock.amount,
             stock=stock_without_unit,
             unit_stock=product.UNIT_STOCK,
             min_quantity=product.MIN_UNIT_PER_ORDER,
-            price_min=product_min_priceiwtr,
-            price_max=product_max_priceiwtr,
-            comparing_price=priceiwtr_of_min_offer,
-            comparing_seller=min_price_offer.seller.name,
+            price_min=product_min_real_unit_price_per_unit_stock.amount,
+            price_max=product_max_real_unit_price_per_unit_stock.amount
+            if product_max_real_unit_price_per_unit_stock
+            else None,
+            comparing_seller=min_unit_price_offer.seller.name,
             comparing_seller_actual_price=int_to_float_price(
                 price_to_priceiwtr(
-                    min_price_offer.price.amount, my_offer.commissionRule
+                    min_unit_price_offer.price.amount, my_offer.commissionRule
                 )
             ),
-            comparing_seller_unit_price=min_price_offer.unitPrice,
+            comparing_seller_unit_price=to_real_unit_price(
+                min_unit_price_offer.unitPrice
+            )
+            * product.UNIT_STOCK,
         )
 
     if target_priceiwtr:
         update_offer(
             offer_id=my_offer.id,
             price=PriceBase(
-                amount=float_to_int_price(target_priceiwtr),
+                amount=target_priceiwtr.amount,
                 currency=CURRENCY,
             ),
             declaredStock=stock_without_unit * product.UNIT_STOCK,
-            min_quantity=product.MIN_UNIT_PER_ORDER,
+            min_quantity=product.MIN_UNIT_PER_ORDER * product.UNIT_STOCK
+            if product.MIN_UNIT_PER_ORDER
+            else product.MIN_UNIT_PER_ORDER,
         )
     product.Note = note_message
     product.Last_update = last_update_message
@@ -213,48 +301,24 @@ def ingame_category_compare_flow(
     my_offer: Offer,
     final_products: dict[str, FinalProduct],
 ):
-    product_min_priceiwtr = product.min_price()
-    product_max_priceiwtr = product.max_price()
-    # blacklist = product.blacklist()
-    # stock = product.stock()
-
-    # Convert price to comparatable price
-    real_product_min_price = int_to_float_price(
-        priceiwtr_to_price(
-            priceiwtr=float_to_int_price(
-                product_min_priceiwtr,
-            ),
-            commission_rule=my_offer.commissionRule,
-        )
-    )
-    real_product_max_price = (
-        int_to_float_price(
-            priceiwtr_to_price(
-                priceiwtr=float_to_int_price(
-                    product_max_priceiwtr,
-                ),
-                commission_rule=my_offer.commissionRule,
-            )
-        )
-        if product_max_priceiwtr
-        else None
-    )
+    product_min_unit_price = product.min_price()
+    product_max_unit_price = product.max_price()
 
     valid_final_products: dict[str, FinalProduct] = {}
 
     for product_id, final_product in final_products.items():
-        real_offer_price = int_to_float_price(
-            unit_price_to_price(
-                unit_price=final_product.ingameAttributes.unitPrice,
-                min_quantity=product.MIN_UNIT_PER_ORDER,
-            )
+        real_offer_unit_price = (
+            to_real_unit_price(final_product.ingameAttributes.unitPrice)
+            * product.UNIT_STOCK
         )
         if (
-            real_product_max_price
-            and real_product_min_price <= real_offer_price <= real_product_max_price
+            product_max_unit_price
+            and product_min_unit_price
+            <= real_offer_unit_price
+            <= product_max_unit_price
         ) or (
-            real_product_max_price is None
-            and real_product_min_price <= real_offer_price
+            product_max_unit_price is None
+            and product_min_unit_price <= real_offer_unit_price
         ):
             valid_final_products[product_id] = final_product
 
@@ -303,30 +367,47 @@ def check_product_compare_flow(
 def no_check_product_compare_flow(
     product: Product,
 ):
-    product_min_price = product.min_price()
-    product_max_price = product.max_price()
+    product_min_unit_price = product.min_price()
+    product_max_unit_price = product.max_price()
     stock = product.stock()
 
     real_stock = stock * product.UNIT_STOCK
 
-    int_price = float_to_int_price(product_min_price)
+    abstract_unit_price = back_to_abstract_unit_price(
+        real_unit_price=product_min_unit_price
+    )
 
     my_offer_id = extract_offer_id_from_product_link(product.Product_link)
+    my_offer = kinguin_client.get_offer(offer_id=my_offer_id)
+
+    target_priceiwtr = unit_price_to_priceiwtr(
+        unit_price=abstract_unit_price,
+        min_quantity=product.MIN_UNIT_PER_ORDER,
+        commission_rule=my_offer.commissionRule,
+    )
 
     update_offer(
         offer_id=my_offer_id,
         declaredStock=real_stock,
-        price=PriceBase(amount=int_price, currency=CURRENCY),
-        min_quantity=product.MIN_UNIT_PER_ORDER,
+        price=PriceBase(amount=target_priceiwtr, currency=CURRENCY),
+        min_quantity=(
+            product.MIN_UNIT_PER_ORDER * product.UNIT_STOCK
+            if product.MIN_UNIT_PER_ORDER
+            else product.MIN_UNIT_PER_ORDER
+        ),
     )
 
     note_message, last_update_message = update_with_min_price(
-        price=product_min_price,
+        price=int_to_float_price(
+            priceiwtr_to_price(target_priceiwtr, my_offer.commissionRule)
+        ),
+        priceiwtr=int_to_float_price(target_priceiwtr),
+        unit_price=product_min_unit_price,
         stock=stock,
         min_quantity=product.MIN_UNIT_PER_ORDER,
         unit_stock=product.UNIT_STOCK,
-        price_min=product_min_price,
-        price_max=product_max_price,
+        price_min=product_min_unit_price,
+        price_max=product_max_unit_price,
     )
 
     product.Note = note_message

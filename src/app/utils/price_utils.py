@@ -1,17 +1,17 @@
-from ..shared.consts import PRICE_CONVERT_RATE
+from ..shared.consts import API_VS_REAL_PRICE_CONVERT_RATE
 from ..models.api_models import CommissionRule
 
 
 def float_to_int_price(
     price: float,
 ) -> int:
-    return int(price * PRICE_CONVERT_RATE)
+    return int(price * API_VS_REAL_PRICE_CONVERT_RATE)
 
 
 def int_to_float_price(
     price: int,
 ) -> float:
-    return float(price) / PRICE_CONVERT_RATE
+    return float(price) / API_VS_REAL_PRICE_CONVERT_RATE
 
 
 def priceiwtr_to_price(
@@ -60,3 +60,17 @@ def unit_price_to_priceiwtr(
         ),
         commission_rule,
     )
+
+
+def to_real_unit_price(
+    abstract_unit_price: int | float,
+) -> float:
+    if isinstance(abstract_unit_price, int):
+        return float(abstract_unit_price) / API_VS_REAL_PRICE_CONVERT_RATE
+    return abstract_unit_price / API_VS_REAL_PRICE_CONVERT_RATE
+
+
+def back_to_abstract_unit_price(
+    real_unit_price: float,
+) -> float:
+    return real_unit_price * API_VS_REAL_PRICE_CONVERT_RATE
