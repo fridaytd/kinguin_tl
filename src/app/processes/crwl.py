@@ -9,17 +9,26 @@ from ..shared.exceptions import CrwlError
 from ..utils.decorators import retry_on_fail
 
 
+@retry_on_fail(max_retries=10, sleep_interval=5)
+def extract_state(
+    sb,
+):
+    sb.cdp.get_page_source()
+    state = sb.cdp.evaluate(WINDOW_PRELOADEDSTATE_EXPRESSION)
+    if state is None:
+        raise CrwlError("Cannot get data from web!!! State is None")
+    return state
+
+
 @retry_on_fail()
 def get_state(
     sb,
     url: str,
 ):
     sb.cdp.get(url)
-    sb.cdp.sleep(1)
+    sb.cdp.sleep(2)
     sb.cdp.get_page_source()
-    state = sb.cdp.evaluate(WINDOW_PRELOADEDSTATE_EXPRESSION)
-    if state is None:
-        raise CrwlError("Cannot get data from web!!! State is None")
+    state = extract_state(sb)
     return state
 
 

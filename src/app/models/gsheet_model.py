@@ -162,6 +162,4 @@ class Product(ColSheetModel):
                     res.append(i)
             return res
 
-        raise SheetError(
-            f"{self.IDSHEET_BLACKLIST}->{self.IDSHEET_BLACKLIST}->{self.CELL_BLACKLIST} is None"
-        )
+        return []
