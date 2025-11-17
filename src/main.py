@@ -1,18 +1,57 @@
 import os
-
-from datetime import datetime
 import time
-from seleniumbase import SB
-from gspread.worksheet import Worksheet
+from datetime import datetime
+from queue import Queue
+from threading import Thread
+from typing import Optional
 
-
-from app.utils.logger import logger
-from app.utils.gsheet import worksheet
-from app.models.gsheet_model import Product
-from app.processes.main_process import process
 from pydantic import ValidationError
-from app.utils.update_messages import last_update_message
+from seleniumbase import SB
 
+from app import config, logger
+from app.processes.main_process import process
+from app.service.data_cache import CachedRow, get_cache, initialize_cache
+from app.utils.decorators import retry_on_fail
+from app.utils.paths import SRC_PATH
+from app.utils.date_time import formated_datetime
+# from app.models.gsheet_model import Product as RowModel
+from gspread.worksheet import Worksheet
+from app.utils.gsheet import worksheet
+class BrowserManager:
+    def __init__(self):
+        self.browsers = []
+
+    def create_browser(self, **kwargs):
+        """Create a new browser instance and return its index"""
+        sb_context = SB(**kwargs)
+        sb = sb_context.__enter__()  # Manually enter the context
+        self.browsers.append((sb_context, sb))
+        return len(self.browsers) - 1
+
+    def get(self, index):
+        """Get browser by index"""
+        return self.browsers[index][1]  # Return the actual SB instance
+
+    def create_multiple(self, count, **kwargs):
+        """Create multiple browsers at once"""
+        indices = []
+        for _ in range(count):
+            indices.append(self.create_browser(**kwargs))
+        return indices
+
+    def close_all(self):
+        """Close all browser instances"""
+        for sb_context, sb in self.browsers:
+            try:
+                sb_context.__exit__(None, None, None)  # Properly exit the context
+            except Exception as e:
+                print(f"Error closing browser: {e}")
+        self.browsers.clear()
+
+
+browser_manager = BrowserManager()
+for _ in range(config.THREAD_NUMBER):
+    browser_manager.create_browser(uc=True, headless=True, disable_js=True)
 
 def get_run_indexes(sheet: Worksheet) -> list[int]:
     run_indexes = []
@@ -32,74 +71,210 @@ def get_run_indexes(sheet: Worksheet) -> list[int]:
 
     return run_indexes
 
+def update_error_to_cache(index: int, error_msg: str):
+    try:
+        now = datetime.now()
+        cache = get_cache()
+        cache.update_fields(
+            index=index,
+            note=f"{formated_datetime(now)}: {error_msg}",
+            last_update=formated_datetime(now),
+        )
+    except Exception as e:
+        logger.exception(f"Failed to update error to cache: {e}")
 
-def main(sb):
-    logger.info("Start running")
-    run_indexes = get_run_indexes(worksheet)
-    logger.info(f"Run index: {run_indexes}")
-    for index in run_indexes:
-        logger.info(f"INDEX (ROW): {index}")
+
+def validate_required_fields(
+    cached_row: CachedRow, thread_prefix: str
+) -> tuple[bool, Optional[str]]:
+    required_fields = {
+        "Category": "Category",
+        "Product_link": "Product_link",
+        "Check_product_compare": "CHECK_PRODUCT_COMPARE",
+        "DONGIAGIAM_MIN": "DONGIAGIAM_MIN",
+        "DONGIAGIAM_MAX": "DONGIAGIAM_MAX",
+        "DONGIA_LAMTRON": "DONGIA_LAMTRON",
+        "min_price_value": "MIN_PRICE",
+        "stock_value": "STOCK",
+        "blacklist_value": "BLACKLIST",
+        "Relax_time": "RELAX_TIME",
+    }
+
+    for field_name, display_name in required_fields.items():
+        value = getattr(cached_row, field_name, None)
+
+        # Check None
+        if value is None:
+            error_msg = f"Giá trị {display_name} đang rỗng. Vui lòng cập nhật!"
+            logger.error(f"{thread_prefix} Validation failed: {error_msg}")
+            return False, error_msg
+
+        # Check empty string for string fields
+        # if isinstance(value, str) and not value.strip():
+        #     error_msg = f"Giá trị {display_name} đang rỗng. Vui lòng cập nhật!"
+        #     logger.error(f"{thread_prefix} Validation failed: {error_msg}")
+        #     return False, error_msg
+
+    logger.info(f"{thread_prefix} All required fields are not empty")
+    return True, None
+
+
+def worker(index_queue: Queue, cookies_path: str, worker_id: int):
+    thread_prefix = f"[Worker-{worker_id}]"
+
+    sb = browser_manager.get(worker_id - 1)
+
+    sb.activate_cdp_mode("https://google.com")
+    sb.cdp.load_cookies(cookies_path)
+
+    while True:
+        index = index_queue.get()
+        if index is None:
+            index_queue.task_done()
+            break
+
+        logger.info(f"{thread_prefix} INDEX (ROW): {index}")
         try:
-            product = Product.get(worksheet, index)
+            cache = get_cache()
+            cached_row = cache.get(index)
 
-            process(sb, product)
-            logger.info(f"Sleep for {product.RELAX_TIME}s")
-            time.sleep(product.RELAX_TIME)
-        except ValidationError as e:
-            logger.error(f"VALIDATION ERROR AT ROW: {index}")
-            logger.error(e.errors())
-            try:
-                now = datetime.now()
-                worksheet.batch_update(
-                    [
-                        {
-                            "range": f"D{index}",
-                            "values": [
-                                [
-                                    f"{last_update_message(now)}: VALIDATION ERROR AT ROW: {index}"
-                                ]
-                            ],
-                        }
-                    ]
+            if cached_row is None:
+                logger.error(f"{thread_prefix} Row {index} not found in cache")
+                index_queue.task_done()
+                continue
+
+            is_valid, error_message = validate_required_fields(
+                cached_row, thread_prefix
+            )
+            if not is_valid:
+                logger.error(
+                    f"{thread_prefix} Row {index} validation failed: {error_message}"
                 )
-            except Exception as e:
-                logger.error(e)
-                time.sleep(10)
+                update_error_to_cache(index, error_message)
+                index_queue.task_done()
+                continue
+
+            process(sb, cached_row)
+            logger.info(f"{thread_prefix} Sleep for {cached_row.Relax_time}s")
+            time.sleep(cached_row.Relax_time)
+
+        except ValidationError as e:
+            logger.exception(f"{thread_prefix} VALIDATION ERROR AT ROW: {index}")
+            logger.exception(e.errors())
+            update_error_to_cache(index, f"VALIDATION ERROR: {e.errors()}")
 
         except Exception as e:
-            logger.error(f"FAILED AT ROW: {index}")
-            try:
-                now = datetime.now()
-                worksheet.batch_update(
-                    [
-                        {
-                            "range": f"D{index}",
-                            "values": [[f"{last_update_message(now)}: FAILED: {e}"]],
-                        }
-                    ]
-                )
-            except Exception as e1:
-                logger.error(e1)
-                time.sleep(10)
-            logger.exception(e, exc_info=True)
+            logger.exception(f"{thread_prefix} FAILED AT ROW: {index}")
+            update_error_to_cache(index, f"FAILED: {e}")
+            time.sleep(20)
 
-        time.sleep(4)
+        finally:
+            index_queue.task_done()
 
+
+def main():
+    logger.info("Start running")
+
+    run_indexes = get_run_indexes(worksheet)
+
+    if not run_indexes:
+        logger.info("No rows to process")
+        return
+
+    thread_number = config.THREAD_NUMBER
+    logger.info(f"Run indexes: {run_indexes}")
+    logger.info(f"Thread number: {thread_number}")
+
+    cache_file = SRC_PATH / "data" / "cache.csv"
+    initialize_cache(cache_file, config.SHEET_ID, config.SHEET_NAME, run_indexes)
+
+    # cookies_path = str(SRC_PATH / "data" / "cookies.txt")p
+
+    # batches = [
+    #     run_indexes[i : i + thread_number]
+    #     for i in range(0, len(run_indexes), thread_number)
+    # ]
+
+    # total_batches = len(batches)
+    # logger.info(f"Total batches: {total_batches}")
+
+    # for batch_idx, batch in enumerate(batches, 1):
+    #     logger.info(f"\n{'=' * 50}")
+    #     logger.info(f"Processing batch {batch_idx}/{total_batches}: {batch}")
+    #     logger.info(f"{'=' * 50}\n")
+
+    #     index_queue = Queue()
+
+    #     for index in batch:
+    #         index_queue.put(index)
+
+    #     threads = []
+    #     for i in range(thread_number):
+    #         t = Thread(
+    #             target=worker,
+    #             args=(index_queue, cookies_path, i + 1),
+    #             daemon=True,
+    #             name=f"Worker-{i + 1}",
+    #         )
+    #         t.start()
+    #         threads.append(t)
+    #         logger.info(f"Started worker thread {i + 1}/{thread_number}")
+
+    #     index_queue.join()
+
+    #     for _ in range(thread_number):
+    #         index_queue.put(None)
+
+    #     for t in threads:
+    #         t.join(timeout=120)
+    #         if t.is_alive():
+    #             logger.warning(f"Thread {t.name} did not finish in time!!!!!!!!!!")
+
+    #     logger.info(f"Flushing batch {batch_idx}/{total_batches} to Google Sheet...")
+    #     cache = get_cache()
+    #     cache.flush_updates_to_sheet(config.SHEET_ID, config.SHEET_NAME)
+    #     logger.info(f"Batch {batch_idx}/{total_batches} flushed successfully")
+
+    # logger.info(
+    #     f"Completed processing {len(run_indexes)} rows in {total_batches} batches"
+    # )
     logger.info(f"Sleep for {os.getenv('RELAX_TIME_EACH_ROUND', '10')}s")
-    time.sleep(
-        int(
-            os.getenv(
-                "RELAX_TIME_EACH_ROUND",
-                "10",
-            )
-        )
-    )
+    time.sleep(int(os.getenv("RELAX_TIME_EACH_ROUND", "10")))
 
 
-with SB(uc=True, headless=True) as sb:
-    sb.activate_cdp_mode("https://google.com")
-    while True:
-        try:
-            main(sb)
-        except Exception:
-            time.sleep(30)
+@retry_on_fail(max_retries=10, sleep_interval=1)
+def set_cookies():
+    with SB(
+        uc=True,
+        headless=True,
+        disable_js=False,
+    ) as sb:
+        sb.activate_cdp_mode("https://gameboost.com")
+        sb.cdp.sleep(2)
+        sb.cdp.wait_for_text("Change language and currency")
+        logger.info("Click change language and currency")
+        sb.cdp.click('span:contains("Change language and currency")')
+        sb.cdp.sleep(0.5)
+        logger.info("Click currency")
+        sb.cdp.mouse_click('label:contains("Currency") ~ button')
+        sb.cdp.sleep(0.5)
+        logger.info("Click Euro")
+        sb.cdp.mouse_click('div[aria-selected] span:contains("Euro")')
+        sb.cdp.sleep(0.5)
+        logger.info("Click Save Changes")
+        sb.cdp.find_element_by_text("Save Changes").click()
+        sb.cdp.sleep(2)
+        sb.cdp.save_cookies(SRC_PATH / "data" / "cookies.txt")
+
+
+if __name__ == "__main__":
+    logger.info("=== STARTING SCRIPT ===")
+
+    logger.info("Setting cookies...")
+    set_cookies()
+    logger.info("Cookies set.")
+    main()
+    logger.info("=== SCRIPT COMPLETED ===")
+    # while True:
+    #     main()
+    #     logger.info("=== SCRIPT COMPLETED ===")

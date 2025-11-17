@@ -1,7 +1,6 @@
 import random
+from datetime import datetime
 
-
-from ..models.gsheet_model import Product
 from .crwl import extract_offers_or_final_produce, extract_offers, get_state
 from ..utils.logger import logger
 from ..models.crwl_models import (
@@ -13,11 +12,9 @@ from ..utils.kinguin_client import kinguin_client
 from ..shared.consts import CURRENCY
 from ..models.api_models import PriceBase
 from ..utils.price_utils import (
-    float_to_int_price,
     int_to_float_price,
     priceiwtr_to_price,
     price_to_priceiwtr,
-    unit_price_to_price,
     unit_price_to_priceiwtr,
     to_real_unit_price,
     back_to_abstract_unit_price,
@@ -31,10 +28,22 @@ from ..models.prices import (
     RealUnitPrice,
     RealUnitPricePerUnitStock,
     APIUnitPrice,
-    RealPrice,
     PriceCustomerPay,
     PriceIWTR,
 )
+from app.service.data_cache import CachedRow, get_cache
+from app.utils.date_time import formated_datetime
+
+
+def update_cache_note(cached_row: CachedRow, note: str):
+    """Update note and last_update in cache"""
+    now = datetime.now()
+    cache = get_cache()
+    cache.update_fields(
+        index=cached_row.index, 
+        note=note, 
+        last_update=formated_datetime(now)
+    )
 
 
 def extract_offer_id_from_product_link(link: str) -> str:
@@ -57,58 +66,59 @@ def update_offer(
 
 
 def calculate_unit_price_change_by_min_offer(
-    product: Product,
+    cached_row: CachedRow,
     product_min_real_unit_price_per_unit_stock: RealUnitPricePerUnitStock,
     product_max_real_unit_price_per_unit_stock: RealUnitPricePerUnitStock | None,
     compare_real_unit_price_per_unit_stock: RealUnitPricePerUnitStock,
 ) -> RealUnitPricePerUnitStock:
     new_min_unit_price_random = (
-        compare_real_unit_price_per_unit_stock.amount - product.DONGIAGIAM_MAX
-        if compare_real_unit_price_per_unit_stock.amount - product.DONGIAGIAM_MAX
+        compare_real_unit_price_per_unit_stock.amount - cached_row.DONGIAGIAM_MAX
+        if compare_real_unit_price_per_unit_stock.amount - cached_row.DONGIAGIAM_MAX
         >= product_min_real_unit_price_per_unit_stock.amount
         else product_min_real_unit_price_per_unit_stock.amount
     )
     new_max_unit_price_random = (
-        compare_real_unit_price_per_unit_stock.amount - product.DONGIAGIAM_MIN
-        if compare_real_unit_price_per_unit_stock.amount - product.DONGIAGIAM_MIN
+        compare_real_unit_price_per_unit_stock.amount - cached_row.DONGIAGIAM_MIN
+        if compare_real_unit_price_per_unit_stock.amount - cached_row.DONGIAGIAM_MIN
         >= product_min_real_unit_price_per_unit_stock.amount
         else product_min_real_unit_price_per_unit_stock.amount
     )
     new_unit_price_change = round(
         random.uniform(new_min_unit_price_random, new_max_unit_price_random),
-        product.DONGIA_LAMTRON,
+        cached_row.DONGIA_LAMTRON,
     )
 
     return RealUnitPricePerUnitStock(
-        amount=new_unit_price_change, unit_stock=product.UNIT_STOCK
+        amount=new_unit_price_change, unit_stock=1
     )
 
 
 def offers_compare_flow(
-    product: Product,
+    cached_row: CachedRow,
     my_offer: Offer,
     offers: dict[str, CrwlOffer],
+    check_mode: str,
 ):
     valid_crwl_offers: dict[str, CrwlOffer] = {}
 
-    # Get product data
-    _product_min_price: float = product.min_price()
+    # Get product data from cache (no API calls!)
+    _product_min_price: float = cached_row.min_price_value
     product_min_real_unit_price_per_unit_stock = RealUnitPricePerUnitStock(
         amount=_product_min_price,
-        unit_stock=product.UNIT_STOCK,
+        unit_stock=1,  # Adjust based on your needs
     )
 
-    _product_max_price: float | None = product.max_price()
+    _product_max_price: float | None = cached_row.max_price_value
     product_max_real_unit_price_per_unit_stock: RealUnitPricePerUnitStock | None = (
         RealUnitPricePerUnitStock(
             amount=_product_max_price,
-            unit_stock=product.UNIT_STOCK,
+            unit_stock=1,
         )
         if _product_max_price
         else None
     )
-    blacklist = product.blacklist()
-    stock_without_unit = product.stock()
+    blacklist = cached_row.blacklist_value
+    stock_without_unit = cached_row.stock_value
 
     logger.info(
         f"Product min unit price: {product_min_real_unit_price_per_unit_stock.amount}"
@@ -125,14 +135,9 @@ def offers_compare_flow(
         offer_api_unit_price: APIUnitPrice = APIUnitPrice(amount=offer.unitPrice)
         offer_real_unit_price: RealUnitPrice = offer_api_unit_price.to_real_unit_price()
         offer_real_unit_price_per_unit_stock = (
-            offer_real_unit_price.to_unit_price_per_unit_stock(
-                unit_stock=product.UNIT_STOCK
-            )
+            offer_real_unit_price.to_unit_price_per_unit_stock(unit_stock=1)
         )
 
-        # print(
-        #     f"Seller: {offer.seller.name}, unit price: {offer_real_unit_price_per_unit_stock.amount}"
-        # )
         if offer.seller.name not in blacklist:
             if (
                 product_max_real_unit_price_per_unit_stock
@@ -151,13 +156,17 @@ def offers_compare_flow(
                 ):
                     min_unit_price_offer = offer
 
+    # Determine target price
+    target_priceiwtr = None
+    note_message = ""
+    
     if min_unit_price_offer is None:
         if product_max_real_unit_price_per_unit_stock:
             logger.info("Update by max price")
             # Round target real unit price per unit stock
             product_max_real_unit_price_per_unit_stock.amount = round(
                 product_max_real_unit_price_per_unit_stock.amount,
-                product.DONGIA_LAMTRON,
+                cached_row.DONGIA_LAMTRON,
             )
             # Convert to api unit price
             target_api_unit_price: APIUnitPrice = (
@@ -166,10 +175,7 @@ def offers_compare_flow(
             # Convert to price customer pay
             target_price_customer_pay: PriceCustomerPay = (
                 target_api_unit_price.to_price_customer_pay(
-                    min_quantity_per_order=product.UNIT_STOCK
-                    * product.MIN_UNIT_PER_ORDER
-                    if product.MIN_UNIT_PER_ORDER
-                    else 1
+                    min_quantity_per_order=1  # Adjust if needed
                 )
             )
             # Convert to price I want to receive
@@ -181,8 +187,8 @@ def offers_compare_flow(
                 priceiwtr=target_priceiwtr.to_real_price().amount,
                 unit_price=product_max_real_unit_price_per_unit_stock.amount,
                 stock=stock_without_unit,
-                min_quantity=product.MIN_UNIT_PER_ORDER,
-                unit_stock=product.UNIT_STOCK,
+                min_quantity=None,  # Adjust if needed
+                unit_stock=1,
                 price_min=product_min_real_unit_price_per_unit_stock.amount,
                 price_max=product_max_real_unit_price_per_unit_stock.amount,
             )
@@ -192,7 +198,7 @@ def offers_compare_flow(
             # Round target real unit price per unit stock
             product_min_real_unit_price_per_unit_stock.amount = round(
                 product_min_real_unit_price_per_unit_stock.amount,
-                product.DONGIA_LAMTRON,
+                cached_row.DONGIA_LAMTRON,
             )
             # Convert to api unit price
             target_api_unit_price: APIUnitPrice = (
@@ -201,10 +207,7 @@ def offers_compare_flow(
             # Convert to price customer pay
             target_price_customer_pay: PriceCustomerPay = (
                 target_api_unit_price.to_price_customer_pay(
-                    min_quantity_per_order=product.UNIT_STOCK
-                    * product.MIN_UNIT_PER_ORDER
-                    if product.MIN_UNIT_PER_ORDER
-                    else 1
+                    min_quantity_per_order=1
                 )
             )
             # Convert to price I want to receive
@@ -216,15 +219,15 @@ def offers_compare_flow(
                 priceiwtr=target_priceiwtr.to_real_price().amount,
                 unit_price=product_min_real_unit_price_per_unit_stock.amount,
                 stock=stock_without_unit,
-                min_quantity=product.MIN_UNIT_PER_ORDER,
-                unit_stock=product.UNIT_STOCK,
+                min_quantity=None,
+                unit_stock=1,
                 price_min=product_min_real_unit_price_per_unit_stock.amount,
                 price_max=None,
             )
     else:
-        logger.info(f"Update price by price of {min_unit_price_offer.seller.name}")
+        logger.info(f"Found competitor: {min_unit_price_offer.seller.name}")
 
-        # Convert to the same unit on sheet
+        # Convert competitor price to same unit
         compare_api_unit_price: APIUnitPrice = APIUnitPrice(
             amount=min_unit_price_offer.unitPrice
         )
@@ -232,13 +235,47 @@ def offers_compare_flow(
             compare_api_unit_price.to_real_unit_price()
         )
         compare_real_unit_price_per_unit_stock: RealUnitPricePerUnitStock = (
-            compare_real_unit_price.to_unit_price_per_unit_stock(
-                unit_stock=product.UNIT_STOCK
-            )
+            compare_real_unit_price.to_unit_price_per_unit_stock(unit_stock=1)
         )
 
+        # Check mode 2: If already lower than competitor, don't update
+        if check_mode == "2":
+            # Get current price from my offer
+            current_priceiwtr = PriceIWTR(amount=my_offer.price.amount)
+            current_price_customer_pay = current_priceiwtr.to_price_customer_pay(
+                commission_rule=my_offer.commissionRule
+            )
+            current_api_unit_price = current_price_customer_pay.to_api_unit_price(
+                min_quantity_per_order=1
+            )
+            current_real_unit_price = current_api_unit_price.to_real_unit_price()
+            current_real_unit_price_per_unit_stock = (
+                current_real_unit_price.to_unit_price_per_unit_stock(unit_stock=1)
+            )
+
+            if (
+                current_real_unit_price_per_unit_stock.amount
+                < compare_real_unit_price_per_unit_stock.amount
+            ):
+                logger.info(
+                    f"Mode 2: Current price ({current_real_unit_price_per_unit_stock.amount}) "
+                    f"already lower than competitor ({compare_real_unit_price_per_unit_stock.amount}). "
+                    f"No update needed."
+                )
+                note_message = (
+                    f"Giá đã tốt hơn đối thủ, không cần cập nhật! "
+                    f"Current={current_real_unit_price_per_unit_stock.amount:.2f}, "
+                    f"Competitor={compare_real_unit_price_per_unit_stock.amount:.2f} "
+                    f"({min_unit_price_offer.seller.name})"
+                )
+                update_cache_note(cached_row, note_message)
+                return
+
+        # Calculate new price based on competitor
+        logger.info(f"Update price by price of {min_unit_price_offer.seller.name}")
+        
         target_real_unit_price_per_unit_stock = calculate_unit_price_change_by_min_offer(
-            product=product,
+            cached_row=cached_row,
             product_min_real_unit_price_per_unit_stock=product_min_real_unit_price_per_unit_stock,
             product_max_real_unit_price_per_unit_stock=product_max_real_unit_price_per_unit_stock,
             compare_real_unit_price_per_unit_stock=compare_real_unit_price_per_unit_stock,
@@ -248,9 +285,7 @@ def offers_compare_flow(
             target_real_unit_price_per_unit_stock.to_api_unit_price()
         )
         target_price_customer_pay = target_api_unit_price.to_price_customer_pay(
-            min_quantity_per_order=product.MIN_UNIT_PER_ORDER * product.UNIT_STOCK
-            if product.MIN_UNIT_PER_ORDER
-            else 1
+            min_quantity_per_order=1
         )
         target_priceiwtr = target_price_customer_pay.to_priceiwtr(
             commission_rule=my_offer.commissionRule
@@ -260,8 +295,8 @@ def offers_compare_flow(
             priceiwtr=target_priceiwtr.to_real_price().amount,
             unit_price=target_real_unit_price_per_unit_stock.amount,
             stock=stock_without_unit,
-            unit_stock=product.UNIT_STOCK,
-            min_quantity=product.MIN_UNIT_PER_ORDER,
+            unit_stock=1,
+            min_quantity=None,
             price_min=product_min_real_unit_price_per_unit_stock.amount,
             price_max=product_max_real_unit_price_per_unit_stock.amount
             if product_max_real_unit_price_per_unit_stock
@@ -274,10 +309,10 @@ def offers_compare_flow(
             ),
             comparing_seller_unit_price=to_real_unit_price(
                 min_unit_price_offer.unitPrice
-            )
-            * product.UNIT_STOCK,
+            ),
         )
 
+    # Update offer if we have a target price
     if target_priceiwtr:
         update_offer(
             offer_id=my_offer.id,
@@ -285,31 +320,30 @@ def offers_compare_flow(
                 amount=target_priceiwtr.amount,
                 currency=CURRENCY,
             ),
-            declaredStock=stock_without_unit * product.UNIT_STOCK,
-            min_quantity=product.MIN_UNIT_PER_ORDER * product.UNIT_STOCK
-            if product.MIN_UNIT_PER_ORDER
-            else product.MIN_UNIT_PER_ORDER,
+            declaredStock=stock_without_unit,
+            min_quantity=None,
         )
-    product.Note = note_message
-    product.Last_update = last_update_message
-    product.update()
+    
+    # Update cache
+    if note_message:
+        update_cache_note(cached_row, note_message)
 
 
 def ingame_category_compare_flow(
     sb,
-    product: Product,
+    cached_row: CachedRow,
     my_offer: Offer,
     final_products: dict[str, FinalProduct],
+    check_mode: str,
 ):
-    product_min_unit_price = product.min_price()
-    product_max_unit_price = product.max_price()
+    product_min_unit_price = cached_row.min_price_value
+    product_max_unit_price = cached_row.max_price_value
 
     valid_final_products: dict[str, FinalProduct] = {}
 
     for product_id, final_product in final_products.items():
-        real_offer_unit_price = (
-            to_real_unit_price(final_product.ingameAttributes.unitPrice)
-            * product.UNIT_STOCK
+        real_offer_unit_price = to_real_unit_price(
+            final_product.ingameAttributes.unitPrice
         )
         if (
             product_max_unit_price
@@ -331,58 +365,63 @@ def ingame_category_compare_flow(
         offers.update(extract_offers(state))
 
     offers_compare_flow(
-        product=product,
+        cached_row=cached_row,
         my_offer=my_offer,
         offers=offers,
+        check_mode=check_mode,
     )
 
 
 def check_product_compare_flow(
     sb,
-    product: Product,
+    cached_row: CachedRow,
+    check_mode: str,
 ):
-    logger.info(f"Processing for {product.Product_name}")
-    logger.info(f"Crawling at: {product.PRODUCT_COMPARE}")
+    logger.info(f"Processing for {cached_row.Product_name}")
+    logger.info(f"Crawling at: {cached_row.Product_compare}")
 
-    my_offer_id = extract_offer_id_from_product_link(product.Product_link)
+    my_offer_id = extract_offer_id_from_product_link(cached_row.Product_link)
 
     my_offer = kinguin_client.get_offer(offer_id=my_offer_id)
 
-    extracted_data = extract_offers_or_final_produce(sb, product.PRODUCT_COMPARE)
+    extracted_data = extract_offers_or_final_produce(sb, cached_row.Product_compare)
 
     if isinstance(extracted_data, ExtractedOffer):
         offers_compare_flow(
-            product=product, my_offer=my_offer, offers=extracted_data.data
+            cached_row=cached_row, 
+            my_offer=my_offer, 
+            offers=extracted_data.data,
+            check_mode=check_mode,
         )
-
     else:
         ingame_category_compare_flow(
             sb,
-            product=product,
+            cached_row=cached_row,
             my_offer=my_offer,
             final_products=extracted_data.data,
+            check_mode=check_mode,
         )
 
 
 def no_check_product_compare_flow(
-    product: Product,
+    cached_row: CachedRow,
 ):
-    product_min_unit_price = product.min_price()
-    product_max_unit_price = product.max_price()
-    stock = product.stock()
+    product_min_unit_price = cached_row.min_price_value
+    product_max_unit_price = cached_row.max_price_value
+    stock = cached_row.stock_value
 
-    real_stock = stock * product.UNIT_STOCK
+    real_stock = stock  # Adjust if needed
 
     abstract_unit_price = back_to_abstract_unit_price(
         real_unit_price=product_min_unit_price
     )
 
-    my_offer_id = extract_offer_id_from_product_link(product.Product_link)
+    my_offer_id = extract_offer_id_from_product_link(cached_row.Product_link)
     my_offer = kinguin_client.get_offer(offer_id=my_offer_id)
 
     target_priceiwtr = unit_price_to_priceiwtr(
         unit_price=abstract_unit_price,
-        min_quantity=product.MIN_UNIT_PER_ORDER,
+        min_quantity=None,
         commission_rule=my_offer.commissionRule,
     )
 
@@ -390,11 +429,7 @@ def no_check_product_compare_flow(
         offer_id=my_offer_id,
         declaredStock=real_stock,
         price=PriceBase(amount=target_priceiwtr, currency=CURRENCY),
-        min_quantity=(
-            product.MIN_UNIT_PER_ORDER * product.UNIT_STOCK
-            if product.MIN_UNIT_PER_ORDER
-            else product.MIN_UNIT_PER_ORDER
-        ),
+        min_quantity=None,
     )
 
     note_message, last_update_message = update_with_min_price(
@@ -404,23 +439,25 @@ def no_check_product_compare_flow(
         priceiwtr=int_to_float_price(target_priceiwtr),
         unit_price=product_min_unit_price,
         stock=stock,
-        min_quantity=product.MIN_UNIT_PER_ORDER,
-        unit_stock=product.UNIT_STOCK,
+        min_quantity=None,
+        unit_stock=1,
         price_min=product_min_unit_price,
         price_max=product_max_unit_price,
     )
 
-    product.Note = note_message
-    product.Last_update = last_update_message
-    product.update()
+    # Update cache instead of calling product.update()
+    update_cache_note(cached_row, note_message)
 
 
 def process(
     sb,
-    product: Product,
+    cached_row: CachedRow,
 ):
-    if product.CHECK_PRODUCT_COMPARE == 1:
-        logger.info("Must compare product")
-        check_product_compare_flow(sb, product)
+    check_mode = cached_row.Check_product_compare
+    
+    if check_mode != "0":
+        logger.info(f"Mode {check_mode}: Compare product flow")
+        check_product_compare_flow(sb, cached_row, check_mode)
     else:
-        no_check_product_compare_flow(product)
+        logger.info("Mode 0: No comparison, updating by min price")
+        no_check_product_compare_flow(cached_row)
