@@ -11,7 +11,6 @@ from seleniumbase import SB
 from app import config, logger
 from app.processes.main_process import process
 from app.service.data_cache import CachedRow, get_cache, initialize_cache
-from app.utils.decorators import retry_on_fail
 from app.utils.paths import SRC_PATH
 from app.utils.date_time import formated_datetime
 
@@ -124,13 +123,12 @@ def validate_required_fields(
     return True, None
 
 
-def worker(index_queue: Queue, cookies_path: str, worker_id: int):
+def worker(index_queue: Queue, worker_id: int):
     thread_prefix = f"[Worker-{worker_id}]"
 
     sb = browser_manager.get(worker_id - 1)
 
     sb.activate_cdp_mode("https://google.com")
-    sb.cdp.load_cookies(cookies_path)
 
     while True:
         index = index_queue.get()
@@ -193,8 +191,6 @@ def main():
     cache_file = SRC_PATH / "data" / "cache.csv"
     initialize_cache(cache_file, config.SHEET_ID, config.SHEET_NAME, run_indexes)
 
-    cookies_path = str(SRC_PATH / "data" / "cookies.txt")
-
     batches = [
         run_indexes[i : i + thread_number]
         for i in range(0, len(run_indexes), thread_number)
@@ -217,7 +213,7 @@ def main():
         for i in range(thread_number):
             t = Thread(
                 target=worker,
-                args=(index_queue, cookies_path, i + 1),
+                args=(index_queue, i + 1),
                 daemon=True,
                 name=f"Worker-{i + 1}",
             )
@@ -247,39 +243,9 @@ def main():
     time.sleep(int(os.getenv("RELAX_TIME_EACH_ROUND", "10")))
 
 
-@retry_on_fail(max_retries=10, sleep_interval=1)
-def set_cookies():
-    with SB(
-        uc=True,
-        headless=True,
-        disable_js=False,
-    ) as sb:
-        sb.activate_cdp_mode("https://gameboost.com")
-        sb.cdp.sleep(2)
-        sb.cdp.wait_for_text("Change language and currency")
-        logger.info("Click change language and currency")
-        sb.cdp.click('span:contains("Change language and currency")')
-        sb.cdp.sleep(0.5)
-        logger.info("Click currency")
-        sb.cdp.mouse_click('label:contains("Currency") ~ button')
-        sb.cdp.sleep(0.5)
-        logger.info("Click Euro")
-        sb.cdp.mouse_click('div[aria-selected] span:contains("Euro")')
-        sb.cdp.sleep(0.5)
-        logger.info("Click Save Changes")
-        sb.cdp.find_element_by_text("Save Changes").click()
-        sb.cdp.sleep(2)
-        sb.cdp.save_cookies(SRC_PATH / "data" / "cookies.txt")
-
-
 if __name__ == "__main__":
     logger.info("=== STARTING SCRIPT ===")
 
-    logger.info("Setting cookies...")
-    set_cookies()
-    logger.info("Cookies set.")
-    main()
-    logger.info("=== SCRIPT COMPLETED ===")
-    # while True:
-    #     main()
-    #     logger.info("=== SCRIPT COMPLETED ===")
+    while True:
+        main()
+        logger.info("=== SCRIPT COMPLETED ===")
