@@ -8,26 +8,26 @@ from gspread.utils import ValueInputOption
 
 from app import logger
 from app.models.gsheet_model import Product as RowModel
-from app.utils.gsheet import worksheet
-# from gspread.worksheet import Worksheet
+from app.utils.gsheet import g_client
+
 @dataclass
 class CachedRow:
     index: int
+    CHECK: int
     Product_name: str
     Product_link: str
-    Product_compare: str
-    Category: str
-    Check_product_compare: str
+    CHECK_PRODUCT_COMPARE: int
+    PRODUCT_COMPARE: str
     min_price_value: Optional[float]
     max_price_value: Optional[float]
     stock_value: Optional[int]
     blacklist_value: List[str]
-    include_keywords_value: Optional[List[str]]
-    exclude_keywords_value: Optional[List[str]]
     DONGIAGIAM_MIN: float
     DONGIAGIAM_MAX: float
     DONGIA_LAMTRON: int
-    Relax_time: float
+    UNIT_STOCK: int
+    MIN_UNIT_PER_ORDER: Optional[int]
+    RELAX_TIME: int
 
     # Fields that will be updated
     Note: Optional[str] = None
@@ -52,7 +52,9 @@ class DataCache:
 
         try:
             # Get worksheet and all data at once
-            # worksheet = RowModel.get_worksheet(sheet_id, sheet_name)
+            spreadsheet = g_client.open_by_key(sheet_id)
+            worksheet = spreadsheet.worksheet(sheet_name)
+            logger.info(f'Worksheet column count: {worksheet.col_count}')
 
             # Get all values from sheet (this is just ONE API call!)
             logger.info("Fetching all sheet data in one request...")
@@ -100,7 +102,7 @@ class DataCache:
                     cached_row = self._parse_row_to_cached(
                         idx, row_values, col_to_field, external_data
                     )
-                    print(cached_row)
+                    
                     if cached_row:
                         self.data[idx] = cached_row
                         loaded_count += 1
@@ -136,16 +138,12 @@ class DataCache:
     ) -> Dict[str, Dict[str, str]]:
         external_refs = {}
 
-        # Column letters for external references
+        # Column letters for external references - UPDATED BASED ON NEW MODEL
         ref_configs = {
             "min_price": ["L", "M", "N"],  # IDSHEET_MIN, SHEET_MIN, CELL_MIN
             "max_price": ["O", "P", "Q"],  # IDSHEET_MAX, SHEET_MAX, CELL_MAX
-            "stock": ["R", "S", "T"],  # IDSHEET_STOCK, SHEET_STOCK, CELL_STOCK
-            "blacklist": [
-                "U",
-                "V",
-                "W",
-            ],  # IDSHEET_BLACKLIST, SHEET_BLACKLIST, CELL_BLACKLIST
+            "stock": ["R", "S", "T"],      # IDSHEET_STOCK, SHEET_STOCK, CELL_STOCK
+            "blacklist": ["W", "X", "Y"],  # IDSHEET_BLACKLIST, SHEET_BLACKLIST, CELL_BLACKLIST (changed from U,V,W to W,X,Y)
         }
 
         for idx in run_indexes:
@@ -228,7 +226,6 @@ class DataCache:
                 if other_refs:
                     ranges = [f"{sheet_name}!{ref[1]['cell']}" for ref in other_refs]
                     try:
-                        print(ranges)
                         results = g_client.http_client.values_batch_get(
                             id=sheet_id, ranges=ranges
                         )
@@ -308,12 +305,14 @@ class DataCache:
                     return f"{sheet_id}|{sheet_name}|{cell}"
                 return None
 
-            # Get basic fields
-            product_name = get_value("B", "")
+            # Get basic fields - UPDATED BASED ON NEW MODEL
+            check = int(get_value("B", 0))
+            product_name = get_value("C", "")
+            note = get_value("D")
+            last_update = get_value("E")
             product_link = get_value("F", "")
+            check_product_compare = int(get_value("G", 0))
             product_compare = get_value("H", "")
-            category = get_value("E", "")
-            check_product_compare = get_value("G", "")
 
             # Get external data
             min_price_value = None
@@ -341,52 +340,41 @@ class DataCache:
                     logger.warning(f"Row {idx}: Invalid stock value - {e}")
 
             blacklist_value = []
-            blacklist_key = get_external_key("U", "V", "W")
+            blacklist_key = get_external_key("W", "X", "Y")  # Updated from U,V,W to W,X,Y
             if blacklist_key and blacklist_key in external_data:
                 blacklist_value = external_data[blacklist_key]
 
-            # Parse keywords
-            include_keywords_value = None
-            include_kw = get_value("Y")
-            if include_kw:
-                include_keywords_value = [
-                    kw.strip() for kw in include_kw.split(";") if kw.strip()
-                ]
-
-            exclude_keywords_value = None
-            exclude_kw = get_value("Z")
-            if exclude_kw:
-                exclude_keywords_value = [
-                    kw.strip() for kw in exclude_kw.split(";") if kw.strip()
-                ]
-
-            # Get numeric fields
+            # Get numeric fields - UPDATED BASED ON NEW MODEL
             dongiagiam_min = float(get_value("I", 0))
             dongiagiam_max = float(get_value("J", 0))
             dongia_lamtron = int(get_value("K", 0))
-            relax_time = float(get_value("X", 0))
-
-            # Get update fields
-            note = get_value("C")
-            last_update = get_value("D")
+            unit_stock = int(get_value("U", 0))
+            min_unit_per_order = None
+            min_unit_val = get_value("V")
+            if min_unit_val:
+                try:
+                    min_unit_per_order = int(min_unit_val)
+                except (ValueError, TypeError):
+                    pass
+            relax_time = int(get_value("Z", 0))
 
             cached_row = CachedRow(
                 index=idx,
+                CHECK=check,
                 Product_name=product_name,
                 Product_link=product_link,
-                Product_compare=product_compare,
-                Category=category,
-                Check_product_compare=check_product_compare,
+                CHECK_PRODUCT_COMPARE=check_product_compare,
+                PRODUCT_COMPARE=product_compare,
                 min_price_value=min_price_value,
                 max_price_value=max_price_value,
                 stock_value=stock_value,
                 blacklist_value=blacklist_value,
-                include_keywords_value=include_keywords_value,
-                exclude_keywords_value=exclude_keywords_value,
                 DONGIAGIAM_MIN=dongiagiam_min,
                 DONGIAGIAM_MAX=dongiagiam_max,
                 DONGIA_LAMTRON=dongia_lamtron,
-                Relax_time=relax_time,
+                UNIT_STOCK=unit_stock,
+                MIN_UNIT_PER_ORDER=min_unit_per_order,
+                RELAX_TIME=relax_time,
                 Note=note,
                 Last_update=last_update,
             )
@@ -430,25 +418,13 @@ class DataCache:
                     else:
                         row_dict["blacklist_value"] = ""
 
-                    if row_dict["include_keywords_value"]:
-                        row_dict["include_keywords_value"] = ";".join(
-                            row_dict["include_keywords_value"]
-                        )
-                    else:
-                        row_dict["include_keywords_value"] = ""
-
-                    if row_dict["exclude_keywords_value"]:
-                        row_dict["exclude_keywords_value"] = ";".join(
-                            row_dict["exclude_keywords_value"]
-                        )
-                    else:
-                        row_dict["exclude_keywords_value"] = ""
-
                     # Handle None values - convert to empty strings for CSV
                     if row_dict["Note"] is None:
                         row_dict["Note"] = ""
                     if row_dict["Last_update"] is None:
                         row_dict["Last_update"] = ""
+                    if row_dict["MIN_UNIT_PER_ORDER"] is None:
+                        row_dict["MIN_UNIT_PER_ORDER"] = ""
 
                     # Format float fields to avoid scientific notation
                     if row_dict["DONGIAGIAM_MIN"] and isinstance(row_dict["DONGIAGIAM_MIN"], float):
@@ -458,11 +434,6 @@ class DataCache:
                     if row_dict["DONGIAGIAM_MAX"] and isinstance(row_dict["DONGIAGIAM_MAX"], float):
                         row_dict["DONGIAGIAM_MAX"] = (
                             f"{row_dict['DONGIAGIAM_MAX']:.10f}".rstrip("0").rstrip(".")
-                        )
-
-                    if row_dict["Relax_time"] and isinstance(row_dict["Relax_time"], float):
-                        row_dict["Relax_time"] = (
-                            f"{row_dict['Relax_time']:.10f}".rstrip("0").rstrip(".")
                         )
 
                     if row_dict["min_price_value"] and isinstance(
@@ -497,6 +468,8 @@ class DataCache:
                     reader = csv.DictReader(f)
                     for row in reader:
                         row["index"] = int(row["index"])
+                        row["CHECK"] = int(row["CHECK"])
+                        row["CHECK_PRODUCT_COMPARE"] = int(row["CHECK_PRODUCT_COMPARE"])
 
                         row["min_price_value"] = (
                             float(row["min_price_value"])
@@ -519,24 +492,18 @@ class DataCache:
                         row["DONGIAGIAM_MIN"] = float(row["DONGIAGIAM_MIN"])
                         row["DONGIAGIAM_MAX"] = float(row["DONGIAGIAM_MAX"])
                         row["DONGIA_LAMTRON"] = int(row["DONGIA_LAMTRON"])
-                        row["Relax_time"] = float(row["Relax_time"])
+                        row["UNIT_STOCK"] = int(row["UNIT_STOCK"])
+                        row["MIN_UNIT_PER_ORDER"] = (
+                            int(row["MIN_UNIT_PER_ORDER"])
+                            if row["MIN_UNIT_PER_ORDER"] and row["MIN_UNIT_PER_ORDER"].strip()
+                            else None
+                        )
+                        row["RELAX_TIME"] = int(row["RELAX_TIME"])
 
                         row["blacklist_value"] = (
                             row["blacklist_value"].split(";")
                             if row["blacklist_value"] and row["blacklist_value"].strip()
                             else []
-                        )
-                        row["include_keywords_value"] = (
-                            row["include_keywords_value"].split(";")
-                            if row["include_keywords_value"]
-                            and row["include_keywords_value"].strip()
-                            else None
-                        )
-                        row["exclude_keywords_value"] = (
-                            row["exclude_keywords_value"].split(";")
-                            if row["exclude_keywords_value"]
-                            and row["exclude_keywords_value"].strip()
-                            else None
                         )
 
                         row["Note"] = (
@@ -588,8 +555,9 @@ class DataCache:
         logger.info("Starting API call to Google Sheets...")
 
         try:
-            worksheet = RowModel.get_worksheet(sheet_id, sheet_name)
-            mapping_dict = RowModel.updated_mapping_fields()
+            spreadsheet = g_client.open_by_key(sheet_id)
+            worksheet = spreadsheet.worksheet(sheet_name)
+            mapping_dict = RowModel.mapping_fields()
 
             batch_data = []
 

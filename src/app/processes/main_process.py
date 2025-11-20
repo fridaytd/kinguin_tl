@@ -378,13 +378,13 @@ def check_product_compare_flow(
     check_mode: str,
 ):
     logger.info(f"Processing for {cached_row.Product_name}")
-    logger.info(f"Crawling at: {cached_row.Product_compare}")
+    logger.info(f"Crawling at: {cached_row.PRODUCT_COMPARE}")
 
     my_offer_id = extract_offer_id_from_product_link(cached_row.Product_link)
 
     my_offer = kinguin_client.get_offer(offer_id=my_offer_id)
 
-    extracted_data = extract_offers_or_final_produce(sb, cached_row.Product_compare)
+    extracted_data = extract_offers_or_final_produce(sb, cached_row.PRODUCT_COMPARE)
 
     if isinstance(extracted_data, ExtractedOffer):
         offers_compare_flow(
@@ -453,7 +453,7 @@ def process(
     sb,
     cached_row: CachedRow,
 ):
-    check_mode = cached_row.Check_product_compare
+    check_mode = cached_row.CHECK_PRODUCT_COMPARE
     
     if check_mode != "0":
         logger.info(f"Mode {check_mode}: Compare product flow")

@@ -14,9 +14,12 @@ from app.service.data_cache import CachedRow, get_cache, initialize_cache
 from app.utils.decorators import retry_on_fail
 from app.utils.paths import SRC_PATH
 from app.utils.date_time import formated_datetime
+
 # from app.models.gsheet_model import Product as RowModel
 from gspread.worksheet import Worksheet
 from app.utils.gsheet import worksheet
+
+
 class BrowserManager:
     def __init__(self):
         self.browsers = []
@@ -53,6 +56,7 @@ browser_manager = BrowserManager()
 for _ in range(config.THREAD_NUMBER):
     browser_manager.create_browser(uc=True, headless=True, disable_js=True)
 
+
 def get_run_indexes(sheet: Worksheet) -> list[int]:
     run_indexes = []
     check_col = sheet.col_values(2)
@@ -71,6 +75,7 @@ def get_run_indexes(sheet: Worksheet) -> list[int]:
 
     return run_indexes
 
+
 def update_error_to_cache(index: int, error_msg: str):
     try:
         now = datetime.now()
@@ -88,16 +93,16 @@ def validate_required_fields(
     cached_row: CachedRow, thread_prefix: str
 ) -> tuple[bool, Optional[str]]:
     required_fields = {
-        "Category": "Category",
         "Product_link": "Product_link",
-        "Check_product_compare": "CHECK_PRODUCT_COMPARE",
+        "PRODUCT_COMPARE": "PRODUCT_COMPARE",
+        "CHECK_PRODUCT_COMPARE": "CHECK_PRODUCT_COMPARE",
         "DONGIAGIAM_MIN": "DONGIAGIAM_MIN",
         "DONGIAGIAM_MAX": "DONGIAGIAM_MAX",
         "DONGIA_LAMTRON": "DONGIA_LAMTRON",
         "min_price_value": "MIN_PRICE",
         "stock_value": "STOCK",
         "blacklist_value": "BLACKLIST",
-        "Relax_time": "RELAX_TIME",
+        "RELAX_TIME": "RELAX_TIME",
     }
 
     for field_name, display_name in required_fields.items():
@@ -188,56 +193,56 @@ def main():
     cache_file = SRC_PATH / "data" / "cache.csv"
     initialize_cache(cache_file, config.SHEET_ID, config.SHEET_NAME, run_indexes)
 
-    # cookies_path = str(SRC_PATH / "data" / "cookies.txt")p
+    cookies_path = str(SRC_PATH / "data" / "cookies.txt")
 
-    # batches = [
-    #     run_indexes[i : i + thread_number]
-    #     for i in range(0, len(run_indexes), thread_number)
-    # ]
+    batches = [
+        run_indexes[i : i + thread_number]
+        for i in range(0, len(run_indexes), thread_number)
+    ]
 
-    # total_batches = len(batches)
-    # logger.info(f"Total batches: {total_batches}")
+    total_batches = len(batches)
+    logger.info(f"Total batches: {total_batches}")
 
-    # for batch_idx, batch in enumerate(batches, 1):
-    #     logger.info(f"\n{'=' * 50}")
-    #     logger.info(f"Processing batch {batch_idx}/{total_batches}: {batch}")
-    #     logger.info(f"{'=' * 50}\n")
+    for batch_idx, batch in enumerate(batches, 1):
+        logger.info(f"\n{'=' * 50}")
+        logger.info(f"Processing batch {batch_idx}/{total_batches}: {batch}")
+        logger.info(f"{'=' * 50}\n")
 
-    #     index_queue = Queue()
+        index_queue = Queue()
 
-    #     for index in batch:
-    #         index_queue.put(index)
+        for index in batch:
+            index_queue.put(index)
 
-    #     threads = []
-    #     for i in range(thread_number):
-    #         t = Thread(
-    #             target=worker,
-    #             args=(index_queue, cookies_path, i + 1),
-    #             daemon=True,
-    #             name=f"Worker-{i + 1}",
-    #         )
-    #         t.start()
-    #         threads.append(t)
-    #         logger.info(f"Started worker thread {i + 1}/{thread_number}")
+        threads = []
+        for i in range(thread_number):
+            t = Thread(
+                target=worker,
+                args=(index_queue, cookies_path, i + 1),
+                daemon=True,
+                name=f"Worker-{i + 1}",
+            )
+            t.start()
+            threads.append(t)
+            logger.info(f"Started worker thread {i + 1}/{thread_number}")
 
-    #     index_queue.join()
+        index_queue.join()
 
-    #     for _ in range(thread_number):
-    #         index_queue.put(None)
+        for _ in range(thread_number):
+            index_queue.put(None)
 
-    #     for t in threads:
-    #         t.join(timeout=120)
-    #         if t.is_alive():
-    #             logger.warning(f"Thread {t.name} did not finish in time!!!!!!!!!!")
+        for t in threads:
+            t.join(timeout=120)
+            if t.is_alive():
+                logger.warning(f"Thread {t.name} did not finish in time!!!!!!!!!!")
 
-    #     logger.info(f"Flushing batch {batch_idx}/{total_batches} to Google Sheet...")
-    #     cache = get_cache()
-    #     cache.flush_updates_to_sheet(config.SHEET_ID, config.SHEET_NAME)
-    #     logger.info(f"Batch {batch_idx}/{total_batches} flushed successfully")
+        logger.info(f"Flushing batch {batch_idx}/{total_batches} to Google Sheet...")
+        cache = get_cache()
+        cache.flush_updates_to_sheet(config.SHEET_ID, config.SHEET_NAME)
+        logger.info(f"Batch {batch_idx}/{total_batches} flushed successfully")
 
-    # logger.info(
-    #     f"Completed processing {len(run_indexes)} rows in {total_batches} batches"
-    # )
+    logger.info(
+        f"Completed processing {len(run_indexes)} rows in {total_batches} batches"
+    )
     logger.info(f"Sleep for {os.getenv('RELAX_TIME_EACH_ROUND', '10')}s")
     time.sleep(int(os.getenv("RELAX_TIME_EACH_ROUND", "10")))
 
