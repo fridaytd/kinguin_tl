@@ -1,4 +1,3 @@
-import os
 import time
 from datetime import datetime
 from queue import Queue
@@ -6,54 +5,22 @@ from threading import Thread
 from typing import Optional
 
 from pydantic import ValidationError
-from seleniumbase import SB
 
 from app import config, logger
-from app.processes.main_process import process
+from app.processes.process import process
 from app.service.data_cache import CachedRow, get_cache, initialize_cache
-from app.utils.paths import SRC_PATH
-from app.utils.date_time import formated_datetime
+from app.shared.paths import SRC_PATH
+from app.shared.utils import formated_datetime
+from app.utils.browser_manager import BrowserManager
 
-# from app.models.gsheet_model import Product as RowModel
+# from app.sheet import RowModel
 from gspread.worksheet import Worksheet
-from app.utils.gsheet import worksheet
-
-
-class BrowserManager:
-    def __init__(self):
-        self.browsers = []
-
-    def create_browser(self, **kwargs):
-        """Create a new browser instance and return its index"""
-        sb_context = SB(**kwargs)
-        sb = sb_context.__enter__()  # Manually enter the context
-        self.browsers.append((sb_context, sb))
-        return len(self.browsers) - 1
-
-    def get(self, index):
-        """Get browser by index"""
-        return self.browsers[index][1]  # Return the actual SB instance
-
-    def create_multiple(self, count, **kwargs):
-        """Create multiple browsers at once"""
-        indices = []
-        for _ in range(count):
-            indices.append(self.create_browser(**kwargs))
-        return indices
-
-    def close_all(self):
-        """Close all browser instances"""
-        for sb_context, sb in self.browsers:
-            try:
-                sb_context.__exit__(None, None, None)  # Properly exit the context
-            except Exception as e:
-                print(f"Error closing browser: {e}")
-        self.browsers.clear()
+from app.sheet import worksheet
 
 
 browser_manager = BrowserManager()
 for _ in range(config.THREAD_NUMBER):
-    browser_manager.create_browser(uc=True, headless=True, disable_js=True)
+    browser_manager.create_browser(uc=True, headless=True)
 
 
 def get_run_indexes(sheet: Worksheet) -> list[int]:
@@ -153,13 +120,14 @@ def worker(index_queue: Queue, worker_id: int):
                 logger.error(
                     f"{thread_prefix} Row {index} validation failed: {error_message}"
                 )
-                update_error_to_cache(index, error_message)
+                if error_message:  # Type guard to ensure error_message is not None
+                    update_error_to_cache(index, error_message)
                 index_queue.task_done()
                 continue
 
             process(sb, cached_row)
-            logger.info(f"{thread_prefix} Sleep for {cached_row.Relax_time}s")
-            time.sleep(cached_row.Relax_time)
+            logger.info(f"{thread_prefix} Sleep for {cached_row.RELAX_TIME}s")
+            time.sleep(cached_row.RELAX_TIME)
 
         except ValidationError as e:
             logger.exception(f"{thread_prefix} VALIDATION ERROR AT ROW: {index}")
@@ -239,8 +207,8 @@ def main():
     logger.info(
         f"Completed processing {len(run_indexes)} rows in {total_batches} batches"
     )
-    logger.info(f"Sleep for {os.getenv('RELAX_TIME_EACH_ROUND', '10')}s")
-    time.sleep(int(os.getenv("RELAX_TIME_EACH_ROUND", "10")))
+    logger.info(f"Sleep for {config.RELAX_TIME_EACH_ROUND}s")
+    time.sleep(config.RELAX_TIME_EACH_ROUND)
 
 
 if __name__ == "__main__":

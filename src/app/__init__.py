@@ -1,6 +1,6 @@
 from dotenv import load_dotenv
 import logging
-from .utils.config import Config
+from .shared.config import Config
 
 load_dotenv("setting.env")
 logging.basicConfig(

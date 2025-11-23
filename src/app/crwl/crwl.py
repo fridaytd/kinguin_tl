@@ -1,12 +1,12 @@
-from ..shared.consts import WINDOW_PRELOADEDSTATE_EXPRESSION
-from ..models.crwl_models import (
+from app.shared.consts import WINDOW_PRELOADEDSTATE_EXPRESSION
+from .models import (
     CrwlOffer,
     FinalProduct,
     ExtractedFinalProduct,
     ExtractedOffer,
 )
-from ..shared.exceptions import CrwlError
-from ..utils.decorators import retry_on_fail
+from .exceptions import CrwlError
+from app.shared.decorators import retry_on_fail
 
 
 @retry_on_fail(max_retries=10, sleep_interval=5)

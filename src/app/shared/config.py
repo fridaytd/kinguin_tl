@@ -11,8 +11,9 @@ class Config(BaseModel):
     SHEET_ID: str
     SHEET_NAME: str
 
-    # Gameboost API key
-    GAMEBOOST_API_KEY: str
+    # Kinguin API
+    KINGUIN_CLIENT_ID: str
+    KINGUIN_SECRET_KEY: str
 
     # My seller name
     MY_SELLER_NAME: str
@@ -20,7 +21,7 @@ class Config(BaseModel):
     # Relax time each round in second
     RELAX_TIME_EACH_ROUND: int
 
-    #Thread number
+    # Thread number
     THREAD_NUMBER: int
 
     @staticmethod

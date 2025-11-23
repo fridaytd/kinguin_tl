@@ -1,5 +1,5 @@
-from ..shared.consts import API_VS_REAL_PRICE_CONVERT_RATE
-from ..models.api_models import CommissionRule
+from app.shared.consts import API_VS_REAL_PRICE_CONVERT_RATE
+from app.kinguin.models import CommissionRule
 
 
 def float_to_int_price(

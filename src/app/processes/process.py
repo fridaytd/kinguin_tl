@@ -1,17 +1,17 @@
+import logging
 import random
-from datetime import datetime
 
-from .crwl import extract_offers_or_final_produce, extract_offers, get_state
-from ..utils.logger import logger
-from ..models.crwl_models import (
+
+from app.crwl import extract_offers_or_final_produce, extract_offers, get_state
+from app.crwl.models import (
     CrwlOffer,
     FinalProduct,
     ExtractedOffer,
 )
-from ..utils.kinguin_client import kinguin_client
-from ..shared.consts import CURRENCY
-from ..models.api_models import PriceBase
-from ..utils.price_utils import (
+from app.kinguin import kinguin_api_client
+from app.shared.consts import CURRENCY
+from app.kinguin.models import PriceBase, Offer
+from app.prices.utils import (
     int_to_float_price,
     priceiwtr_to_price,
     price_to_priceiwtr,
@@ -19,12 +19,11 @@ from ..utils.price_utils import (
     to_real_unit_price,
     back_to_abstract_unit_price,
 )
-from ..utils.update_messages import (
+from app.utils.update_messages import (
     update_with_comparing_seller,
     update_with_min_price,
 )
-from ..models.api_models import Offer
-from ..models.prices import (
+from app.prices.models import (
     RealUnitPrice,
     RealUnitPricePerUnitStock,
     APIUnitPrice,
@@ -32,22 +31,11 @@ from ..models.prices import (
     PriceIWTR,
 )
 from app.service.data_cache import CachedRow, get_cache
-from app.utils.date_time import formated_datetime
+from app.shared.utils import formated_datetime
+from .shared import update_cache_note, extract_offer_id_from_product_link
 
 
-def update_cache_note(cached_row: CachedRow, note: str):
-    """Update note and last_update in cache"""
-    now = datetime.now()
-    cache = get_cache()
-    cache.update_fields(
-        index=cached_row.index, 
-        note=note, 
-        last_update=formated_datetime(now)
-    )
-
-
-def extract_offer_id_from_product_link(link: str) -> str:
-    return link.split("/")[-1]
+logger = logging.getLogger(__name__)
 
 
 def update_offer(
@@ -56,7 +44,7 @@ def update_offer(
     declaredStock: int,
     min_quantity: int | None,
 ):
-    kinguin_client.update_offer(
+    kinguin_api_client.update_offer(
         offer_id=offer_id,
         price=price,
         declaredStock=declaredStock,
@@ -88,9 +76,7 @@ def calculate_unit_price_change_by_min_offer(
         cached_row.DONGIA_LAMTRON,
     )
 
-    return RealUnitPricePerUnitStock(
-        amount=new_unit_price_change, unit_stock=1
-    )
+    return RealUnitPricePerUnitStock(amount=new_unit_price_change, unit_stock=1)
 
 
 def offers_compare_flow(
@@ -159,7 +145,7 @@ def offers_compare_flow(
     # Determine target price
     target_priceiwtr = None
     note_message = ""
-    
+
     if min_unit_price_offer is None:
         if product_max_real_unit_price_per_unit_stock:
             logger.info("Update by max price")
@@ -206,9 +192,7 @@ def offers_compare_flow(
             )
             # Convert to price customer pay
             target_price_customer_pay: PriceCustomerPay = (
-                target_api_unit_price.to_price_customer_pay(
-                    min_quantity_per_order=1
-                )
+                target_api_unit_price.to_price_customer_pay(min_quantity_per_order=1)
             )
             # Convert to price I want to receive
             target_priceiwtr = target_price_customer_pay.to_priceiwtr(
@@ -273,7 +257,7 @@ def offers_compare_flow(
 
         # Calculate new price based on competitor
         logger.info(f"Update price by price of {min_unit_price_offer.seller.name}")
-        
+
         target_real_unit_price_per_unit_stock = calculate_unit_price_change_by_min_offer(
             cached_row=cached_row,
             product_min_real_unit_price_per_unit_stock=product_min_real_unit_price_per_unit_stock,
@@ -323,7 +307,7 @@ def offers_compare_flow(
             declaredStock=stock_without_unit,
             min_quantity=None,
         )
-    
+
     # Update cache
     if note_message:
         update_cache_note(cached_row, note_message)
@@ -382,14 +366,14 @@ def check_product_compare_flow(
 
     my_offer_id = extract_offer_id_from_product_link(cached_row.Product_link)
 
-    my_offer = kinguin_client.get_offer(offer_id=my_offer_id)
+    my_offer = kinguin_api_client.get_offer(offer_id=my_offer_id)
 
     extracted_data = extract_offers_or_final_produce(sb, cached_row.PRODUCT_COMPARE)
 
     if isinstance(extracted_data, ExtractedOffer):
         offers_compare_flow(
-            cached_row=cached_row, 
-            my_offer=my_offer, 
+            cached_row=cached_row,
+            my_offer=my_offer,
             offers=extracted_data.data,
             check_mode=check_mode,
         )
@@ -417,7 +401,7 @@ def no_check_product_compare_flow(
     )
 
     my_offer_id = extract_offer_id_from_product_link(cached_row.Product_link)
-    my_offer = kinguin_client.get_offer(offer_id=my_offer_id)
+    my_offer = kinguin_api_client.get_offer(offer_id=my_offer_id)
 
     target_priceiwtr = unit_price_to_priceiwtr(
         unit_price=abstract_unit_price,
@@ -454,7 +438,7 @@ def process(
     cached_row: CachedRow,
 ):
     check_mode = cached_row.CHECK_PRODUCT_COMPARE
-    
+
     if check_mode != "0":
         logger.info(f"Mode {check_mode}: Compare product flow")
         check_product_compare_flow(sb, cached_row, check_mode)

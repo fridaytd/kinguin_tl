@@ -1,4 +1,3 @@
-import os
 from pydantic import BaseModel, ConfigDict, Field
 from typing import Annotated, Self
 from gspread.worksheet import Worksheet
@@ -6,7 +5,8 @@ from gspread.auth import service_account
 
 from app.shared.exceptions import SheetError
 from app.shared.consts import COL_META_FIELD_NAME
-from app.utils.paths import ROOT_PATH
+from app.shared.paths import ROOT_PATH
+from app import config
 
 
 class ColSheetModel(BaseModel):
@@ -102,7 +102,7 @@ class Product(ColSheetModel):
     RELAX_TIME: Annotated[int, {COL_META_FIELD_NAME: "Z"}]
 
     def min_price(self) -> float:
-        g_client = service_account(ROOT_PATH.joinpath(os.environ["KEYS_PATH"]))
+        g_client = service_account(ROOT_PATH.joinpath(config.KEYS_PATH))
 
         res = g_client.http_client.values_get(
             id=self.IDSHEET_MIN, range=f"{self.SHEET_MIN}!{self.CELL_MIN}"
@@ -121,7 +121,7 @@ class Product(ColSheetModel):
         if self.IDSHEET_MAX is None or self.SHEET_MAX is None or self.CELL_MAX is None:
             return None
 
-        g_client = service_account(ROOT_PATH.joinpath(os.environ["KEYS_PATH"]))
+        g_client = service_account(ROOT_PATH.joinpath(config.KEYS_PATH))
 
         res = g_client.http_client.values_get(
             id=self.IDSHEET_MAX, range=f"{self.SHEET_MAX}!{self.CELL_MAX}"
@@ -133,7 +133,7 @@ class Product(ColSheetModel):
         return None
 
     def stock(self) -> int:
-        g_client = service_account(ROOT_PATH.joinpath(os.environ["KEYS_PATH"]))
+        g_client = service_account(ROOT_PATH.joinpath(config.KEYS_PATH))
 
         res = g_client.http_client.values_get(
             id=self.IDSHEET_STOCK, range=f"{self.SHEET_STOCK}!{self.CELL_STOCK}"
@@ -148,7 +148,7 @@ class Product(ColSheetModel):
         )
 
     def blacklist(self) -> list[str]:
-        g_client = service_account(ROOT_PATH.joinpath(os.environ["KEYS_PATH"]))
+        g_client = service_account(ROOT_PATH.joinpath(config.KEYS_PATH))
 
         spreadsheet = g_client.open_by_key(self.IDSHEET_BLACKLIST)
 

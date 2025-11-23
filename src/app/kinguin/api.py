@@ -1,13 +1,14 @@
-import os
-
 from datetime import datetime
+import logging
 import requests
 from requests.exceptions import HTTPError
 
-from ..shared.consts import KINGUIN_TOKEN_BASE_URL, KINGUIN_API_BASE_URL
-from .logger import logger
-from ..models.api_models import Offer, PriceBase
-from ..shared.exceptions import ApiError
+from app.shared.consts import KINGUIN_TOKEN_BASE_URL, KINGUIN_API_BASE_URL
+from .models import Offer, PriceBase
+from app.shared.exceptions import ApiError
+from app import config
+
+logger = logging.getLogger(__name__)
 
 
 class Token:
@@ -22,8 +23,8 @@ class Token:
             },
             data={
                 "grant_type": "client_credentials",
-                "client_id": os.environ["KINGUIN_CLIENT_ID"],
-                "client_secret": os.environ["KINGUIN_SECRET_KEY"],
+                "client_id": config.KINGUIN_CLIENT_ID,
+                "client_secret": config.KINGUIN_SECRET_KEY,
             },
         )
 
@@ -58,8 +59,8 @@ class Token:
             },
             data={
                 "grant_type": "client_credentials",
-                "client_id": os.environ["KINGUIN_CLIENT_ID"],
-                "client_secret": os.environ["KINGUIN_SECRET_KEY"],
+                "client_id": config.KINGUIN_CLIENT_ID,
+                "client_secret": config.KINGUIN_SECRET_KEY,
             },
         )
 

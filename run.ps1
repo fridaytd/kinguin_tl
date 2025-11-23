@@ -1,4 +1,2 @@
-deactivate
-# Activate .venv
-.\venv\Scripts\Activate.ps1
-python src\main.py
+git pull
+uv run .\src\main.py

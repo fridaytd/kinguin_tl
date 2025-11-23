@@ -7,8 +7,9 @@ from typing import Dict, List, Optional
 from gspread.utils import ValueInputOption
 
 from app import logger
-from app.models.gsheet_model import Product as RowModel
-from app.utils.gsheet import g_client
+from app.sheet.models import Product as RowModel
+from app.sheet import gsheet_client
+
 
 @dataclass
 class CachedRow:
@@ -52,9 +53,9 @@ class DataCache:
 
         try:
             # Get worksheet and all data at once
-            spreadsheet = g_client.open_by_key(sheet_id)
+            spreadsheet = gsheet_client.open_by_key(sheet_id)
             worksheet = spreadsheet.worksheet(sheet_name)
-            logger.info(f'Worksheet column count: {worksheet.col_count}')
+            logger.info(f"Worksheet column count: {worksheet.col_count}")
 
             # Get all values from sheet (this is just ONE API call!)
             logger.info("Fetching all sheet data in one request...")
@@ -102,7 +103,7 @@ class DataCache:
                     cached_row = self._parse_row_to_cached(
                         idx, row_values, col_to_field, external_data
                     )
-                    
+
                     if cached_row:
                         self.data[idx] = cached_row
                         loaded_count += 1
@@ -142,8 +143,12 @@ class DataCache:
         ref_configs = {
             "min_price": ["L", "M", "N"],  # IDSHEET_MIN, SHEET_MIN, CELL_MIN
             "max_price": ["O", "P", "Q"],  # IDSHEET_MAX, SHEET_MAX, CELL_MAX
-            "stock": ["R", "S", "T"],      # IDSHEET_STOCK, SHEET_STOCK, CELL_STOCK
-            "blacklist": ["W", "X", "Y"],  # IDSHEET_BLACKLIST, SHEET_BLACKLIST, CELL_BLACKLIST (changed from U,V,W to W,X,Y)
+            "stock": ["R", "S", "T"],  # IDSHEET_STOCK, SHEET_STOCK, CELL_STOCK
+            "blacklist": [
+                "W",
+                "X",
+                "Y",
+            ],  # IDSHEET_BLACKLIST, SHEET_BLACKLIST, CELL_BLACKLIST (changed from U,V,W to W,X,Y)
         }
 
         for idx in run_indexes:
@@ -193,17 +198,10 @@ class DataCache:
     def _batch_fetch_external_data(
         self, external_refs: Dict[str, Dict[str, str]]
     ) -> Dict[str, any]:
-        from gspread import service_account
-
-        from app import config
-        from app.utils.paths import ROOT_PATH
-
         external_data = {}
 
         if not external_refs:
             return external_data
-
-        g_client = service_account(ROOT_PATH.joinpath(config.KEYS_PATH))
 
         # Group by sheet_id and sheet_name to batch requests
         grouped_refs = {}
@@ -226,7 +224,8 @@ class DataCache:
                 if other_refs:
                     ranges = [f"{sheet_name}!{ref[1]['cell']}" for ref in other_refs]
                     try:
-                        results = g_client.http_client.values_batch_get(
+                        logger.info(f"Fetching ...: {ranges}")
+                        results = gsheet_client.http_client.values_batch_get(
                             id=sheet_id, ranges=ranges
                         )
 
@@ -241,7 +240,7 @@ class DataCache:
                         # Fallback to individual fetches
                         for ref_key, ref_info in other_refs:
                             try:
-                                res = g_client.http_client.values_get(
+                                res = gsheet_client.http_client.values_get(
                                     id=ref_info["sheet_id"],
                                     range=f"{ref_info['sheet_name']}!{ref_info['cell']}",
                                 )
@@ -254,7 +253,7 @@ class DataCache:
                 # Handle blacklist separately (they are ranges, not single cells)
                 for ref_key, ref_info in blacklist_refs:
                     try:
-                        spreadsheet = g_client.open_by_key(ref_info["sheet_id"])
+                        spreadsheet = gsheet_client.open_by_key(ref_info["sheet_id"])
                         worksheet = spreadsheet.worksheet(ref_info["sheet_name"])
                         blacklist = worksheet.batch_get([ref_info["cell"]])[0]
                         if blacklist:
@@ -340,7 +339,9 @@ class DataCache:
                     logger.warning(f"Row {idx}: Invalid stock value - {e}")
 
             blacklist_value = []
-            blacklist_key = get_external_key("W", "X", "Y")  # Updated from U,V,W to W,X,Y
+            blacklist_key = get_external_key(
+                "W", "X", "Y"
+            )  # Updated from U,V,W to W,X,Y
             if blacklist_key and blacklist_key in external_data:
                 blacklist_value = external_data[blacklist_key]
 
@@ -427,11 +428,15 @@ class DataCache:
                         row_dict["MIN_UNIT_PER_ORDER"] = ""
 
                     # Format float fields to avoid scientific notation
-                    if row_dict["DONGIAGIAM_MIN"] and isinstance(row_dict["DONGIAGIAM_MIN"], float):
+                    if row_dict["DONGIAGIAM_MIN"] and isinstance(
+                        row_dict["DONGIAGIAM_MIN"], float
+                    ):
                         row_dict["DONGIAGIAM_MIN"] = (
                             f"{row_dict['DONGIAGIAM_MIN']:.10f}".rstrip("0").rstrip(".")
                         )
-                    if row_dict["DONGIAGIAM_MAX"] and isinstance(row_dict["DONGIAGIAM_MAX"], float):
+                    if row_dict["DONGIAGIAM_MAX"] and isinstance(
+                        row_dict["DONGIAGIAM_MAX"], float
+                    ):
                         row_dict["DONGIAGIAM_MAX"] = (
                             f"{row_dict['DONGIAGIAM_MAX']:.10f}".rstrip("0").rstrip(".")
                         )
@@ -495,7 +500,8 @@ class DataCache:
                         row["UNIT_STOCK"] = int(row["UNIT_STOCK"])
                         row["MIN_UNIT_PER_ORDER"] = (
                             int(row["MIN_UNIT_PER_ORDER"])
-                            if row["MIN_UNIT_PER_ORDER"] and row["MIN_UNIT_PER_ORDER"].strip()
+                            if row["MIN_UNIT_PER_ORDER"]
+                            and row["MIN_UNIT_PER_ORDER"].strip()
                             else None
                         )
                         row["RELAX_TIME"] = int(row["RELAX_TIME"])
@@ -555,7 +561,7 @@ class DataCache:
         logger.info("Starting API call to Google Sheets...")
 
         try:
-            spreadsheet = g_client.open_by_key(sheet_id)
+            spreadsheet = gsheet_client.open_by_key(sheet_id)
             worksheet = spreadsheet.worksheet(sheet_name)
             mapping_dict = RowModel.mapping_fields()
 

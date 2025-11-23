@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 
-from ..shared.consts import API_VS_REAL_PRICE_CONVERT_RATE
-from .api_models import CommissionRule
+from app.shared.consts import API_VS_REAL_PRICE_CONVERT_RATE
+from app.kinguin.models import CommissionRule
 
 
 class PriceBase(BaseModel):

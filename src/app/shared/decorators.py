@@ -1,6 +1,6 @@
 import time
 from typing import Callable
-from app.utils.logger import logger
+from app import logger
 
 
 def retry_on_fail(max_retries: int = 3, sleep_interval: float = 0.5):
