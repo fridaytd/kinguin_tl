@@ -68,6 +68,7 @@ def validate_required_fields(
         "min_price_value": "MIN_PRICE",
         "stock_value": "STOCK",
         "blacklist_value": "BLACKLIST",
+        "UNIT_STOCK": "UNIT_STOCK",
         "RELAX_TIME": "RELAX_TIME",
     }
 
