@@ -113,3 +113,17 @@ class RealUnitPricePerUnitStock(UnitPriceBase):
     ) -> APIUnitPrice:
         real_unit_price = self.to_real_unit_price()
         return real_unit_price.to_api_unit_price()
+
+
+class APIUnitPricePerUnitStock(UnitPriceBase):
+    unit_stock: int
+
+    def to_real_unit_price_per_unit_stock(
+        self,
+    ) -> RealUnitPricePerUnitStock:
+        real_unit_price_per_unit_stock: float = (
+            float(self.amount) / API_VS_REAL_PRICE_CONVERT_RATE
+        )
+        return RealUnitPricePerUnitStock(
+            amount=real_unit_price_per_unit_stock, unit_stock=self.unit_stock
+        )

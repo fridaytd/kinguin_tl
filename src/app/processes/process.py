@@ -29,6 +29,7 @@ from app.prices.models import (
     RealPrice,
     PriceCustomerPay,
     PriceIWTR,
+    APIUnitPricePerUnitStock,
 )
 from app.service.data_cache import CachedRow
 
@@ -238,11 +239,13 @@ def offers_compare_flow(
         # Check mode 2: If already lower than competitor, don't update
         if product.CHECK_PRODUCT_COMPARE == 2:
             # Get current price from my offer
-            current_real_unit_price_per_unit_stock: RealUnitPricePerUnitStock = (
-                RealUnitPricePerUnitStock(
+            current_api_unit_price_per_unit_stock: APIUnitPricePerUnitStock = (
+                APIUnitPricePerUnitStock(
                     amount=my_offer.price.amount, unit_stock=product.UNIT_STOCK
                 )
             )
+
+            current_real_unit_price_per_unit_stock = current_api_unit_price_per_unit_stock.to_real_unit_price_per_unit_stock()
 
             if (
                 current_real_unit_price_per_unit_stock.amount
