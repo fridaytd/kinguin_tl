@@ -27,6 +27,19 @@ def priceiwtr_to_price(
     )
 
 
+def float_priceiwtr_to_float_price(
+    priceiwtr: float,
+    commission_rule: CommissionRule,
+) -> float:
+    int_price_iwtr = float_to_int_price(priceiwtr)
+    price = priceiwtr_to_price(
+        priceiwtr=int_price_iwtr,
+        commission_rule=commission_rule,
+    )
+    price = int_to_float_price(price)
+    return price
+
+
 def price_to_priceiwtr(
     price: int,
     commission_rule: CommissionRule,
@@ -72,5 +85,5 @@ def to_real_unit_price(
 
 def back_to_abstract_unit_price(
     real_unit_price: float,
-) -> float:
-    return real_unit_price * API_VS_REAL_PRICE_CONVERT_RATE
+) -> int:
+    return int(real_unit_price * API_VS_REAL_PRICE_CONVERT_RATE)

@@ -14,9 +14,10 @@ from app.prices.utils import (
     int_to_float_price,
     priceiwtr_to_price,
     price_to_priceiwtr,
-    unit_price_to_priceiwtr,
     to_real_unit_price,
     back_to_abstract_unit_price,
+    unit_price_to_price,
+    float_priceiwtr_to_float_price,
 )
 from app.utils.update_messages import (
     update_with_comparing_seller,
@@ -90,13 +91,26 @@ def offers_compare_flow(
     valid_crwl_offers: dict[str, CrwlOffer] = {}
 
     # Get product data from cache (no API calls!)
-    _product_min_price: float = product.min_price_value
+    _product_min_price_iwtr: float = product.min_price_value
+
+    _product_min_price = float_priceiwtr_to_float_price(
+        priceiwtr=_product_min_price_iwtr,
+        commission_rule=my_offer.commissionRule,
+    )
     product_min_real_unit_price_per_unit_stock = RealUnitPricePerUnitStock(
         amount=_product_min_price,
         unit_stock=product.UNIT_STOCK,
     )
 
-    _product_max_price: float | None = product.max_price_value
+    _product_max_price_iwtr: float | None = product.max_price_value
+    _product_max_price = (
+        float_priceiwtr_to_float_price(
+            priceiwtr=_product_max_price_iwtr,
+            commission_rule=my_offer.commissionRule,
+        )
+        if _product_max_price_iwtr
+        else None
+    )
     product_max_real_unit_price_per_unit_stock: RealUnitPricePerUnitStock | None = (
         RealUnitPricePerUnitStock(
             amount=_product_max_price,
@@ -108,12 +122,8 @@ def offers_compare_flow(
     blacklist = product.blacklist_value
     stock_without_unit = product.stock_value
 
-    logger.info(
-        f"Product min unit price: {product_min_real_unit_price_per_unit_stock.amount}"
-    )
-    logger.info(
-        f"Product max unit price: {product_max_real_unit_price_per_unit_stock.amount if product_max_real_unit_price_per_unit_stock else None}"
-    )
+    logger.info(f"Product min unit price: {_product_min_price_iwtr}")
+    logger.info(f"Product max unit price: {_product_max_price_iwtr}")
 
     min_unit_price_offer: CrwlOffer | None = None
 
@@ -182,8 +192,8 @@ def offers_compare_flow(
                 stock=stock_without_unit,
                 min_quantity=product.MIN_UNIT_PER_ORDER,
                 unit_stock=product.UNIT_STOCK,
-                price_min=product_min_real_unit_price_per_unit_stock.amount,
-                price_max=product_max_real_unit_price_per_unit_stock.amount,
+                price_min=_product_min_price_iwtr,
+                price_max=_product_max_price_iwtr,
             )
 
         else:
@@ -217,7 +227,7 @@ def offers_compare_flow(
                 stock=stock_without_unit,
                 min_quantity=product.MIN_UNIT_PER_ORDER,
                 unit_stock=product.UNIT_STOCK,
-                price_min=product_min_real_unit_price_per_unit_stock.amount,
+                price_min=_product_min_price_iwtr,
                 price_max=None,
             )
     else:
@@ -293,10 +303,8 @@ def offers_compare_flow(
             stock=stock_without_unit,
             unit_stock=product.UNIT_STOCK,
             min_quantity=product.MIN_UNIT_PER_ORDER,
-            price_min=product_min_real_unit_price_per_unit_stock.amount,
-            price_max=product_max_real_unit_price_per_unit_stock.amount
-            if product_max_real_unit_price_per_unit_stock
-            else None,
+            price_min=_product_min_price_iwtr,
+            price_max=_product_max_price_iwtr,
             comparing_seller=min_unit_price_offer.seller.name,
             comparing_seller_actual_price=int_to_float_price(
                 price_to_priceiwtr(
@@ -398,29 +406,28 @@ def check_product_compare_flow(
 def no_check_product_compare_flow(
     product: CachedRow,
 ):
-    product_min_unit_price = product.min_price_value
-    product_max_unit_price = product.max_price_value
+    product_min_unit_price_iwtr = product.min_price_value
+    product_max_unit_price_iwtr = product.max_price_value
     stock = product.stock_value
 
     real_stock = stock * product.UNIT_STOCK
 
-    abstract_unit_price = back_to_abstract_unit_price(
-        real_unit_price=product_min_unit_price
+    abstract_unit_price_iwtr = back_to_abstract_unit_price(
+        real_unit_price=product_min_unit_price_iwtr
+    )
+
+    abstract_offer_price_iwtr = unit_price_to_price(
+        unit_price=abstract_unit_price_iwtr,
+        min_quantity=product.MIN_UNIT_PER_ORDER,
     )
 
     my_offer_id = extract_offer_id_from_product_link(product.Product_link)
     my_offer = kinguin_client.get_offer(offer_id=my_offer_id)
 
-    target_priceiwtr = unit_price_to_priceiwtr(
-        unit_price=abstract_unit_price,
-        min_quantity=product.MIN_UNIT_PER_ORDER,
-        commission_rule=my_offer.commissionRule,
-    )
-
     update_offer(
         offer_id=my_offer_id,
         declaredStock=real_stock,
-        price=PriceBase(amount=target_priceiwtr, currency=CURRENCY),
+        price=PriceBase(amount=abstract_offer_price_iwtr, currency=CURRENCY),
         min_quantity=(
             product.MIN_UNIT_PER_ORDER * product.UNIT_STOCK
             if product.MIN_UNIT_PER_ORDER
@@ -430,15 +437,15 @@ def no_check_product_compare_flow(
 
     note_message, last_update_message = update_with_min_price(
         price=int_to_float_price(
-            priceiwtr_to_price(target_priceiwtr, my_offer.commissionRule)
+            priceiwtr_to_price(abstract_unit_price_iwtr, my_offer.commissionRule)
         ),
-        priceiwtr=int_to_float_price(target_priceiwtr),
-        unit_price=product_min_unit_price,
+        priceiwtr=int_to_float_price(abstract_unit_price_iwtr),
+        unit_price=product_min_unit_price_iwtr,
         stock=stock,
         min_quantity=product.MIN_UNIT_PER_ORDER,
         unit_stock=product.UNIT_STOCK,
-        price_min=product_min_unit_price,
-        price_max=product_max_unit_price,
+        price_min=product_min_unit_price_iwtr,
+        price_max=product_max_unit_price_iwtr,
     )
 
     # Update cache instead of calling product.update()
