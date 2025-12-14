@@ -8,7 +8,7 @@ from pydantic import ValidationError
 
 from app import config, logger
 from app.processes.process import process
-from app.service.data_cache import CachedRow, get_cache, initialize_cache
+from app.service.data_cache import CachedRow, get_cache, initialize_cache, retry_on_rate_limit
 from app.shared.paths import SRC_PATH
 from app.shared.utils import formated_datetime
 from app.utils.browser_manager import BrowserManager
@@ -23,6 +23,7 @@ for _ in range(config.THREAD_NUMBER):
     browser_manager.create_browser(uc=True, headless=True)
 
 
+@retry_on_rate_limit(max_retries=10, initial_delay=5.0)
 def get_run_indexes(sheet: Worksheet) -> list[int]:
     run_indexes = []
     check_col = sheet.col_values(2)

@@ -1,14 +1,64 @@
 import csv
 import threading
+import time
 from dataclasses import asdict, dataclass
+from functools import wraps
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional, TypeVar
 
 from gspread.utils import ValueInputOption
 
 from app import logger
 from app.sheet.models import Product as RowModel
 from app.sheet import gsheet_client
+
+T = TypeVar('T')
+
+
+def retry_on_rate_limit(
+    max_retries: int = 10,
+    initial_delay: float = 5.0,
+    exponential_backoff: bool = True
+) -> Callable[[Callable[..., T]], Callable[..., T]]:
+    """
+    Decorator to retry a function on rate limit errors with exponential backoff.
+
+    Args:
+        max_retries: Maximum number of retry attempts
+        initial_delay: Initial delay in seconds before first retry
+        exponential_backoff: If True, double the delay after each retry
+
+    Returns:
+        Decorated function that retries on rate limit errors
+    """
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+        @wraps(func)
+        def wrapper(*args, **kwargs) -> T:
+            retry_delay = initial_delay
+
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    is_rate_limit_error = "429" in str(e) or "rate limit" in str(e).lower()
+                    is_last_attempt = attempt >= max_retries - 1
+
+                    if is_rate_limit_error and not is_last_attempt:
+                        logger.warning(
+                            f"Rate limit hit in {func.__name__}, retrying in {retry_delay}s... "
+                            f"(attempt {attempt + 1}/{max_retries})"
+                        )
+                        time.sleep(retry_delay)
+                        if exponential_backoff:
+                            retry_delay *= 2
+                    else:
+                        raise
+
+            # This should never be reached, but for type safety
+            raise RuntimeError(f"Max retries ({max_retries}) exceeded for {func.__name__}")
+
+        return wrapper
+    return decorator
 
 
 @dataclass
@@ -225,10 +275,14 @@ class DataCache:
                     ranges = [f"{sheet_name}!{ref[1]['cell']}" for ref in other_refs]
                     try:
                         logger.info(f"Fetching ...: {ranges}")
-                        results = gsheet_client.http_client.values_batch_get(
-                            id=sheet_id, ranges=ranges
-                        )
 
+                        @retry_on_rate_limit(max_retries=10, initial_delay=5.0)
+                        def batch_get_values():
+                            return gsheet_client.http_client.values_batch_get(
+                                id=sheet_id, ranges=ranges
+                            )
+
+                        results = batch_get_values()
                         value_ranges = results.get("valueRanges", [])
                         for i, ref in enumerate(other_refs):
                             if i < len(value_ranges):
@@ -562,7 +616,12 @@ class DataCache:
 
         try:
             spreadsheet = gsheet_client.open_by_key(sheet_id)
-            worksheet = spreadsheet.worksheet(sheet_name)
+
+            @retry_on_rate_limit(max_retries=20, initial_delay=5.0)
+            def get_worksheet():
+                return spreadsheet.worksheet(sheet_name)
+
+            worksheet = get_worksheet()
             mapping_dict = RowModel.mapping_fields()
 
             batch_data = []
@@ -594,9 +653,14 @@ class DataCache:
                 logger.info(
                     f"Sending {len(batch_data)} cell updates to Google Sheets..."
                 )
-                worksheet.batch_update(
-                    batch_data, value_input_option=ValueInputOption.user_entered
-                )
+
+                @retry_on_rate_limit(max_retries=20, initial_delay=2.0)
+                def batch_update_cells():
+                    return worksheet.batch_update(
+                        batch_data, value_input_option=ValueInputOption.user_entered
+                    )
+
+                batch_update_cells()
                 logger.info(
                     f"Successfully flushed {len(updates_to_flush)} updates to Google Sheet"
                 )
