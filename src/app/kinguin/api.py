@@ -151,7 +151,7 @@ class KinguinClient:
         self,
         offer_id: str,
         price: PriceBase,
-        declaredStock: int,
+        declaredStock: int | None,
         min_quantity: int | None,
     ) -> None:
         self.token.ensure_valid_token()

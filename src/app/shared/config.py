@@ -4,9 +4,6 @@ from pydantic import BaseModel
 
 
 class Config(BaseModel):
-    # Keys
-    KEYS_PATH: str
-
     # Sheets
     SHEET_ID: str
     SHEET_NAME: str

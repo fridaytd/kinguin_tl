@@ -25,3 +25,11 @@ downloaded_files/
 # Data files
 **/data/*
 !**/data/.gitkeep
+
+# Keys folder
+# Data files
+**/keys/*
+!**/keys/.gitkeep
+
+# GSheet cache
+.gsheet_cache/
