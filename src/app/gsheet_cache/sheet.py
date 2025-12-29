@@ -343,7 +343,10 @@ class CacheSheet:
         row, col = self.__a1_to_indices(cell)
 
         try:
-            return data[row][col]
+            value = data[row][col]
+            if value == "":
+                value = None
+            return value
         except IndexError:
             return None
 
@@ -445,9 +448,12 @@ class CacheSheet:
                 grid_range.endColumnIndex or (len(data[r]) if r < len(data) else 0),
             ):
                 try:
-                    row_data.append(data[r][c])
+                    value = data[r][c]
+                    if value == "":
+                        value = None
+                    row_data.append(value)
                 except IndexError:
-                    row_data.append("")
+                    row_data.append(None)
             result.append(row_data)
 
         return result
