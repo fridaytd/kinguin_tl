@@ -289,7 +289,7 @@ class RowModel(ColSheetModel):
         )
 
         if stock_value is not None:
-            return int(stock_value[0][0])
+            return int(stock_value)
 
         return None
 
