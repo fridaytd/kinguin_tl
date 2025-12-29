@@ -20,7 +20,7 @@ from app.gsheet_cache_manager import (
 
 browser_manager = BrowserManager()
 for _ in range(config.THREAD_NUMBER):
-    browser_manager.create_browser(uc=True, headless=False)
+    browser_manager.create_browser(uc=True, headless=True)
 
 
 def worker(index_queue: Queue, result_queue: Queue, worker_id: int):
