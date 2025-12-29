@@ -7,6 +7,7 @@ from app.shared.consts import KINGUIN_TOKEN_BASE_URL, KINGUIN_API_BASE_URL
 from .models import Offer, PriceBase
 from app.shared.exceptions import ApiError
 from app import config
+from app.shared.decorators import retry_on_fail
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +115,7 @@ class KinguinClient:
 
         return res.json()
 
+    @retry_on_fail(max_retries=5, sleep_interval=2)
     def get_offer(
         self,
         offer_id: str,
@@ -126,12 +128,15 @@ class KinguinClient:
         }
 
         res = requests.get(
-            f"{KINGUIN_API_BASE_URL}/api/v1/offers/{offer_id}", headers=headers
+            f"{KINGUIN_API_BASE_URL}/api/v1/offers/{offer_id}",
+            headers=headers,
+            timeout=60,
         )
         res.raise_for_status()
 
         return Offer.model_validate(res.json())
 
+    @retry_on_fail(max_retries=5, sleep_interval=2)
     def get_offers(
         self,
     ):
@@ -142,11 +147,14 @@ class KinguinClient:
             "Content-Type": "application/json",
         }
 
-        res = requests.get(f"{KINGUIN_API_BASE_URL}/api/v1/offers", headers=headers)
+        res = requests.get(
+            f"{KINGUIN_API_BASE_URL}/api/v1/offers", headers=headers, timeout=60
+        )
         res.raise_for_status()
 
         return res.json()
 
+    @retry_on_fail(max_retries=5, sleep_interval=2)
     def update_offer(
         self,
         offer_id: str,
@@ -173,6 +181,7 @@ class KinguinClient:
             f"{KINGUIN_API_BASE_URL}/api/v1/offers/{offer_id}",
             headers=headers,
             json=payload,
+            timeout=60,
         )
         try:
             res.raise_for_status()

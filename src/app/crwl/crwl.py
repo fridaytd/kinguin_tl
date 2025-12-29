@@ -9,7 +9,7 @@ from .exceptions import CrwlError
 from app.shared.decorators import retry_on_fail
 
 
-@retry_on_fail(max_retries=10, sleep_interval=5)
+@retry_on_fail(max_retries=3, sleep_interval=5)
 def extract_state(
     sb,
 ):
@@ -20,7 +20,7 @@ def extract_state(
     return state
 
 
-@retry_on_fail()
+@retry_on_fail(max_retries=10, sleep_interval=5)
 def get_state(
     sb,
     url: str,

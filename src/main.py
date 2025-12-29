@@ -7,7 +7,7 @@ from pydantic import ValidationError
 
 from app import config, logger
 from app.processes.process import process
-from app.shared.utils import formated_datetime
+from app.shared.utils import formated_datetime, sleep_for
 from app.utils.browser_manager import BrowserManager
 
 from app.sheet.models import RowModel
@@ -20,7 +20,7 @@ from app.gsheet_cache_manager import (
 
 browser_manager = BrowserManager()
 for _ in range(config.THREAD_NUMBER):
-    browser_manager.create_browser(uc=True, headless=True)
+    browser_manager.create_browser(uc=True, headless=False)
 
 
 def worker(index_queue: Queue, result_queue: Queue, worker_id: int):
@@ -48,8 +48,6 @@ def worker(index_queue: Queue, result_queue: Queue, worker_id: int):
             if updated_product:
                 result_queue.put(updated_product)
 
-            logger.info(f"{thread_prefix} Sleep for {run_row.RELAX_TIME}s")
-            time.sleep(run_row.RELAX_TIME)
         except ValidationError as e:
             logger.exception(f"{thread_prefix} VALIDATION ERROR AT ROW: {index}")
             logger.exception(e.errors())
@@ -151,8 +149,11 @@ def main():
             f"Updating products sequentially for batch {batch_idx}/{total_batches}..."
         )
         updated_count = 0
+        time_sleep = 0.5
         while not result_queue.empty():
             product = result_queue.get()
+            if product.RELAX_TIME and product.RELAX_TIME > time_sleep:
+                time_sleep = product.RELAX_TIME
             product.update()
             updated_count += 1
             logger.info(
@@ -175,6 +176,7 @@ def main():
             cells=update_cells,
         )
         logger.info(f"Batch {batch_idx}/{total_batches} flushed successfully")
+        sleep_for(time_sleep)
 
     logger.info(
         f"Completed processing {len(run_indexes)} rows in {total_batches} batches"

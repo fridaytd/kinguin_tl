@@ -86,6 +86,8 @@ class CacheSheet:
         self._http_client: HTTPClient | None = None
         self._current_key_index: int | None = None
         self._failed_keys: set[int] = set()
+        self._cache_data: list[list[str]] | None = None
+        self._dirty: bool = False
 
         self.__init_cache_file()
         self.__load_keys()
@@ -257,7 +259,7 @@ class CacheSheet:
             raise last_error
 
     def __read_cache_data(self) -> list[list[str]]:
-        """Read all data from the cache file.
+        """Read all data from the cache file with in-memory caching.
 
         Returns:
             A 2D list of strings representing the cached sheet data.
@@ -265,11 +267,14 @@ class CacheSheet:
         Raises:
             FileNotFoundError: If the cache directory does not exist.
         """
-        self.__ensure_cache_dir_exists()
+        if self._cache_data is None:
+            self.__ensure_cache_dir_exists()
 
-        with self.cache_file.open("r", newline="", encoding="utf-8") as f:
-            reader = csv.reader(f)
-            return list(reader)
+            with self.cache_file.open("r", newline="", encoding="utf-8") as f:
+                reader = csv.reader(f)
+                self._cache_data = list(reader)
+
+        return self._cache_data
 
     def __write_cache_data(self, data: list[list[str]]) -> None:
         """Write data to the cache file.
@@ -280,6 +285,10 @@ class CacheSheet:
         with self.cache_file.open("w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerows(data)
+
+        # Update in-memory cache after writing to disk
+        self._cache_data = data
+        self._dirty = False
 
     def __ensure_cell_exists(self, data: list[list[str]], row: int, col: int) -> None:
         """Ensure the data structure is large enough for the given cell.
@@ -327,6 +336,10 @@ class CacheSheet:
             for row in res["values"]:
                 writer.writerow(row)
 
+        # Clear in-memory cache to force reload from new file
+        self._cache_data = None
+        self._dirty = False
+
     def get_value(self, cell: str) -> str | None:
         """Get the value of a specific cell from the cache.
 
@@ -353,8 +366,9 @@ class CacheSheet:
     def update_value(self, cell: str, value: str) -> None:
         """Update the value of a specific cell in the cache.
 
-        This only updates the local cache. Call flush_to_sheet() to sync
-        changes back to the Google Sheet.
+        This only updates the in-memory cache. Call flush_cache() to write
+        changes to disk, or flush_to_sheet() to sync both to disk and the
+        Google Sheet.
 
         Args:
             cell: Cell reference in A1 notation (e.g., "A1", "B5").
@@ -369,10 +383,28 @@ class CacheSheet:
         self.__ensure_cell_exists(data, row, col)
         data[row][col] = value
 
-        self.__write_cache_data(data)
+        # Mark cache as dirty but don't write to disk yet
+        self._dirty = True
+
+    def flush_cache(self) -> None:
+        """Write in-memory cache to disk if dirty.
+
+        This method writes pending changes to the local CSV cache file.
+        It's automatically called by flush_to_sheet(), but you can call
+        it manually if you want to persist changes to disk without
+        syncing to Google Sheets.
+
+        Raises:
+            FileNotFoundError: If the cache directory does not exist.
+        """
+        if self._dirty and self._cache_data is not None:
+            self.__write_cache_data(self._cache_data)
 
     def flush_to_sheet(self, cells: list[str]) -> dict[str, Any] | None:
         """Flush the cached values back to the Google Sheet.
+
+        This method automatically flushes pending changes to disk before
+        syncing to the Google Sheet.
 
         Args:
             cells: List of cell references in A1 notation to sync (e.g., ["A1", "B5"]).
@@ -384,6 +416,9 @@ class CacheSheet:
             FileNotFoundError: If the cache directory does not exist.
             APIError: If the API call fails after all retries.
         """
+        # Flush in-memory changes to disk first
+        self.flush_cache()
+
         data = self.__read_cache_data()
 
         data_body = []

@@ -34,6 +34,7 @@ from app.prices.models import (
 from app.shared.utils import formated_datetime
 
 from .shared import extract_offer_id_from_product_link
+from ..shared.decorators import retry_on_fail
 
 from app.sheet.models import RowModel
 
@@ -41,6 +42,7 @@ from app.sheet.models import RowModel
 logger = logging.getLogger(__name__)
 
 
+@retry_on_fail(max_retries=3, sleep_interval=2)
 def update_offer(
     offer_id: str,
     price: PriceBase,
